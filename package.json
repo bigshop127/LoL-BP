@@ -6,11 +6,13 @@
     "test:worker": "node tests/worker.test.mjs",
     "test:worker:live": "node tests/worker.test.mjs --live",
     "test:rules": "firebase emulators:exec --only firestore \"node tests/rules.test.mjs\"",
-    "test:e2e": "firebase emulators:exec --only firestore \"node tests/e2e.test.mjs\""
+    "test:e2e": "firebase emulators:exec --only firestore \"node tests/e2e.test.mjs\"",
+    "deploy:worker": "cd worker && wrangler deploy"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
     "firebase": "^12.19.0",
-    "playwright-core": "^1.63.0"
+    "playwright-core": "^1.63.0",
+    "wrangler": "^4.148.0"
   }
 }
