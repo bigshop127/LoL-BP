@@ -126,13 +126,21 @@
 
     <!-- Creator Overlay Status Banner (Only visible in Creator Mode) -->
     <div id="creatorBanner" class="hidden bg-gradient-to-r from-purple-950/80 via-slate-900 to-indigo-950/80 border-b border-purple-500/30 px-4 py-2 text-xs text-purple-200">
-        <div class="max-w-7xl mx-auto flex items-center justify-between">
-            <div class="flex items-center gap-2">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2 flex-wrap min-w-0">
                 <i class="fa-solid fa-chart-line text-purple-400 text-sm"></i>
-                <span class="font-bold text-amber-300">OP.GG 勝率數據分析連線中：</span>
+                <span class="font-bold text-amber-300" id="opggStatusText">OP.GG 勝率數據分析連線中：</span>
                 <span id="creatorMatchupSummary">點選對決英雄，即可即時預覽對位與勝率分析數據。</span>
             </div>
-            <span class="bg-purple-900/60 text-purple-300 border border-purple-400/40 px-2 py-0.5 rounded text-[10px]">密碼解鎖權限</span>
+            <div class="flex items-center gap-2 shrink-0">
+                <button id="opggRetryBtn" onclick="loadOpggMeta(true)" class="hidden bg-purple-800/70 hover:bg-purple-700 text-purple-100 border border-purple-400/40 px-2 py-0.5 rounded text-[10px] font-bold transition">
+                    <i class="fa-solid fa-rotate"></i> 重新連線
+                </button>
+                <a href="https://op.gg/zh-tw/lol/champions" target="_blank" rel="noopener" class="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 px-2 py-0.5 rounded text-[10px] font-bold transition">
+                    開啟 OP.GG <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                </a>
+                <span class="bg-purple-900/60 text-purple-300 border border-purple-400/40 px-2 py-0.5 rounded text-[10px]">密碼解鎖權限</span>
+            </div>
         </div>
     </div>
 
@@ -182,7 +190,7 @@
                 <div>
                     <!-- Team Header -->
                     <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
-                        <input id="blueTeamNameInput" type="text" value="藍方隊伍" onchange="updateTeamNames()" 
+                        <input id="blueTeamNameInput" type="text" maxlength="40" value="藍方隊伍" onchange="updateTeamNames()" 
                             class="bg-transparent text-lolBlue font-black text-xl w-full focus:outline-none focus:bg-slate-800/50 rounded px-1" />
                         <span class="text-xs bg-lolBlue/20 text-lolBlue border border-lolBlue/40 px-2 py-0.5 rounded font-bold">BLUE</span>
                     </div>
@@ -210,13 +218,21 @@
                 <!-- Filter Controls -->
                 <div class="flex flex-col gap-3 mb-4">
                     <!-- Search Bar & Stats -->
-                    <div class="flex items-center gap-3">
-                        <div class="relative flex-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <div class="relative flex-1 min-w-[180px]">
                             <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
                             <input type="text" id="searchInput" oninput="renderChampionGrid()" placeholder="搜尋英雄名稱、別名..." 
                                 class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500/60 transition">
                         </div>
                         <span class="text-xs text-slate-400 whitespace-nowrap" id="champCountText">載入中...</span>
+                        <div class="flex items-center gap-1.5">
+                            <button id="btnBanAll" onclick="banAllFiltered()" title="把目前篩選出來的英雄全部禁用（所有局數都有效）" class="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow transition flex items-center gap-1 whitespace-nowrap">
+                                <i class="fa-solid fa-ban"></i> 一鍵全禁
+                            </button>
+                            <button id="btnUnbanAll" onclick="unbanAllFiltered()" title="把目前篩選出來的英雄全部解除禁用" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 text-xs font-bold transition flex items-center gap-1 whitespace-nowrap">
+                                <i class="fa-solid fa-unlock"></i> 一鍵全開
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Category Pills -->
@@ -253,7 +269,7 @@
                 <div>
                     <!-- Team Header -->
                     <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
-                        <input id="redTeamNameInput" type="text" value="紅方隊伍" onchange="updateTeamNames()" 
+                        <input id="redTeamNameInput" type="text" maxlength="40" value="紅方隊伍" onchange="updateTeamNames()" 
                             class="bg-transparent text-lolRed font-black text-xl w-full focus:outline-none focus:bg-slate-800/50 rounded px-1" />
                         <span class="text-xs bg-lolRed/20 text-lolRed border border-lolRed/40 px-2 py-0.5 rounded font-bold">RED</span>
                     </div>
@@ -288,26 +304,18 @@
             </h2>
             <p class="text-xs text-slate-400 mb-4">建立房號與密碼，即可將連結與房號發給朋友進行實時 BP！</p>
             
-            <div class="p-3 bg-purple-950/40 border border-purple-800/40 rounded-xl mb-4 text-xs text-purple-200 flex items-start gap-2">
-                <i class="fa-solid fa-wand-magic-sparkles text-amber-400 text-sm mt-0.5"></i>
-                <div>
-                    <span class="font-bold text-amber-300">創造者模式提示：</span>
-                    若需開啟創造者模式（查看 OP.GG 勝率數據），請在密碼最前面加上 <code class="bg-purple-900 px-1 py-0.5 rounded font-mono text-amber-300">**</code>（例如真實密碼為 123，請輸入 <code class="bg-purple-900 px-1 py-0.5 rounded font-mono text-amber-300">**123</code>）。你與朋友仍會加入同一個房間！
-                </div>
-            </div>
-
             <div class="space-y-4">
                 <div>
                     <label class="block text-xs text-slate-300 font-medium mb-1">房間 ID (Room Code)</label>
-                    <input type="text" id="modalRoomIdInput" placeholder="例如: lol-bp-7788" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500">
+                    <input type="text" id="modalRoomIdInput" maxlength="64" onkeydown="if(event.key==='Enter')joinOrCreateRoom()" placeholder="例如: lol-bp-7788" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500">
                 </div>
                 <div>
                     <label class="block text-xs text-slate-300 font-medium mb-1">房間密碼 (Password)</label>
-                    <input type="password" id="modalRoomPasswordInput" placeholder="輸入密碼 (加 ** 解鎖創作者模式)..." class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500">
+                    <input type="password" id="modalRoomPasswordInput" onkeydown="if(event.key==='Enter')joinOrCreateRoom()" placeholder="輸入房間密碼（可留空）" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500">
                 </div>
 
                 <div class="pt-2 flex gap-3">
-                    <button onclick="joinOrCreateRoom()" class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-sm shadow transition">
+                    <button id="btnJoinRoom" onclick="joinOrCreateRoom()" class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-sm shadow transition">
                         加入 / 建立房間
                     </button>
                     <button onclick="leaveRoom()" class="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition">
@@ -464,8 +472,17 @@
     <!-- Firebase Libraries -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, onSnapshot, FieldPath, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase 網頁設定本來就是公開的，資料安全靠 firestore.rules
+        const firebaseConfig = {
+            apiKey: "AIzaSyAqLALovmnofvZc6nQjOVrCxjEyctV-UMc",
+            authDomain: "lol-bp-fearless.firebaseapp.com",
+            projectId: "lol-bp-fearless",
+            storageBucket: "lol-bp-fearless.firebasestorage.app",
+            messagingSenderId: "444072771221",
+            appId: "1:444072771221:web:1401b92f54927da09aa59c"
+        };
 
         // Global State
         window.allChampions = [];
@@ -475,18 +492,16 @@
         window.manualFilterRole = 'ALL';
         window.manualFilterRange = 'ALL';
         window.activeSlot = null;
-        window.isCreatorMode = false; // Local Creator Mode flag
+        window.isCreatorMode = false; // Local Creator Mode flag（只存在自己這台，不會同步）
+        window.room = { id: '', password: '', hash: '' }; // 房號密碼只存在本機，雲端只放密碼雜湊
 
         // Synchronized Room State
         window.roomState = {
-            roomId: '',
-            password: '',
             matchMode: '5v5', // '5v5' | '1v1'
             fearlessMode: 'hard', // 'hard' | 'soft' | 'standard'
             g1BanCount: 3,
             g2BanCount: 2,
             currentGame: 1,
-            maxGamesCount: 5,
             blueTeamName: '藍方隊伍',
             redTeamName: '紅方隊伍',
             manualDisabledChamps: [],
@@ -499,30 +514,25 @@
             }
         };
 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'lol-fearless-draft';
         let db = null;
-        let auth = null;
         let unsubscribeRoom = null;
+        let roomRef = null;
+        let lastSynced = null; // 上次跟雲端一致時的內容（逐欄比對用）
 
         try {
-            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-                const firebaseConfig = JSON.parse(__firebase_config);
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            // 本機測試用：http://localhost:xxxx/?emu=8085 會改連 Firestore 模擬器，不碰正式資料
+            const params = new URLSearchParams(location.search);
+            if (['localhost', '127.0.0.1'].includes(location.hostname) && params.has('emu')) {
+                connectFirestoreEmulator(db, '127.0.0.1', Number(params.get('emu')) || 8085);
             }
         } catch (e) {
             console.warn("Firebase fallback mode:", e);
+            db = null;
         }
 
         window.db = db;
-        window.appId = appId;
 
         async function loadChampionData() {
             try {
@@ -585,7 +595,8 @@
                         title: c.title,
                         iconUrl: `https://ddragon.leagueoflegends.com/cdn/${latestVersion}/img/champion/${c.id}.png`,
                         rangeType: rangeType,
-                        roles: roles
+                        roles: roles,
+                        numId: c.key // 英雄數字 id（OP.GG 用這個對應）
                     };
 
                     parsedList.push(champObj);
@@ -598,7 +609,78 @@
                 renderAll();
             } catch (e) {
                 console.error("Failed to fetch DataDragon Champions Data:", e);
+                document.getElementById('champCountText').textContent = '英雄資料載入失敗，請重新整理';
             }
+        }
+
+        // ===== 房間同步 =====
+        const GAME_ARRAYS = ['bluePicks', 'redPicks', 'blueBans', 'redBans'];
+        const clampInt = (v, min, max, fallback) => {
+            const n = Number(v);
+            return Number.isInteger(n) ? Math.min(max, Math.max(min, n)) : fallback;
+        };
+        // 陣列裡的空洞（例如先選 Ban 2 再選 Ban 1）一律補 null，雲端不收 undefined
+        const cleanList = (arr) => Array.from(arr || [], v => (typeof v === 'string' && v ? v : null));
+
+        function toCloudDoc(state) {
+            const d = {
+                matchMode: state.matchMode === '1v1' ? '1v1' : '5v5',
+                fearlessMode: ['hard', 'soft', 'standard'].includes(state.fearlessMode) ? state.fearlessMode : 'hard',
+                g1BanCount: clampInt(state.g1BanCount, 0, 5, 3),
+                g2BanCount: clampInt(state.g2BanCount, 0, 5, 2),
+                currentGame: clampInt(state.currentGame, 1, 99, 1),
+                blueTeamName: String(state.blueTeamName || '藍方隊伍').slice(0, 40),
+                redTeamName: String(state.redTeamName || '紅方隊伍').slice(0, 40),
+                manualDisabledChamps: [...new Set((state.manualDisabledChamps || []).filter(v => typeof v === 'string' && v))].slice(0, 400),
+                games: {}
+            };
+            Object.keys(state.games || {}).slice(0, 99).forEach(g => {
+                const src = state.games[g] || {};
+                d.games[g] = {};
+                GAME_ARRAYS.forEach(a => { d.games[g][a] = cleanList(src[a]); });
+            });
+            return d;
+        }
+
+        function normalizeRoomState(data) {
+            const d = toCloudDoc(data || {});
+            if (!Object.keys(d.games).length) {
+                const pickCount = d.matchMode === '1v1' ? 1 : 5;
+                d.games[1] = { bluePicks: Array(pickCount).fill(null), redPicks: Array(pickCount).fill(null), blueBans: [], redBans: [] };
+            }
+            return d;
+        }
+
+        // 攤平成「欄位路徑 → 內容」，只上傳有變動的欄位；兩個人同時點不同格就不會互相蓋掉
+        function flattenDoc(d) {
+            const out = {};
+            Object.keys(d).forEach(k => { if (k !== 'games') out[k] = JSON.stringify(d[k]); });
+            Object.keys(d.games).forEach(g => GAME_ARRAYS.forEach(a => { out[`games.${g}.${a}`] = JSON.stringify(d.games[g][a]); }));
+            return out;
+        }
+
+        async function sha256Hex(text) {
+            const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+            return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        function subscribeRoom(ref) {
+            if (unsubscribeRoom) unsubscribeRoom();
+            unsubscribeRoom = onSnapshot(ref, (snapshot) => {
+                if (!snapshot.exists()) return;
+                const data = snapshot.data();
+                if (data.passwordHash && data.passwordHash !== window.room.hash) return;
+                const prevGame = window.roomState.currentGame;
+                window.roomState = normalizeRoomState(data);
+                lastSynced = flattenDoc(toCloudDoc(window.roomState));
+                if (window.roomState.currentGame !== prevGame) window.activeSlot = null;
+                updateRoomUIStatus();
+                renderAll();
+            }, (error) => {
+                console.error("Firestore sync error:", error);
+                updateRoomUIStatus('房間連線中斷，請重新加入');
+                showToast("房間連線中斷，請重新加入房間", "error");
+            });
         }
 
         window.joinOrCreateRoom = async function() {
@@ -607,6 +689,10 @@
 
             if (!rId) {
                 showToast("請輸入房間 ID", "warning");
+                return;
+            }
+            if (rId.length > 64 || rId.includes('/') || rId === '.' || rId === '..' || /^__.*__$/.test(rId)) {
+                showToast("房間 ID 不能有「/」，最多 64 個字", "warning");
                 return;
             }
 
@@ -618,38 +704,55 @@
                 actualPassword = passInput.substring(2);
             }
 
-            window.isCreatorMode = enableCreator;
-            window.roomState.roomId = rId;
-            window.roomState.password = actualPassword;
-
             if (db) {
-                const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', rId);
-                
-                if (unsubscribeRoom) unsubscribeRoom();
-                unsubscribeRoom = onSnapshot(roomDocRef, (snapshot) => {
+                const btn = document.getElementById('btnJoinRoom');
+                btn.disabled = true;
+                btn.textContent = '連線中…';
+                try {
+                    const hash = actualPassword ? await sha256Hex(`lol-bp:${rId}:${actualPassword}`) : '';
+                    const ref = doc(db, 'rooms', rId);
+                    const snapshot = await getDoc(ref);
+                    let initial;
                     if (snapshot.exists()) {
                         const data = snapshot.data();
-                        if (data.password && data.password !== actualPassword) {
+                        if (data.passwordHash && data.passwordHash !== hash) {
                             showToast("房間密碼錯誤！", "error");
                             return;
                         }
-                        // Sync room data while preserving local match mode/games setup gracefully
-                        window.roomState = data;
-                        renderAll();
+                        initial = normalizeRoomState(data);
                     } else {
-                        window.syncRoomToCloud();
+                        // 新房間：用目前畫面上的設定與選角建立
+                        initial = normalizeRoomState(window.roomState);
+                        await setDoc(ref, { ...toCloudDoc(initial), passwordHash: hash, updatedAt: serverTimestamp() });
                     }
-                }, (error) => {
-                    console.error("Firestore sync error:", error);
-                });
+                    if (window.room.id !== rId) window.activeSlot = null;
+                    roomRef = ref;
+                    window.room = { id: rId, password: actualPassword, hash };
+                    window.roomState = initial;
+                    lastSynced = flattenDoc(toCloudDoc(initial));
+                    subscribeRoom(ref);
+                } catch (err) {
+                    console.error("Join room error:", err);
+                    showToast(err && err.code === 'permission-denied'
+                        ? "無法建立房間：這個房號剛被別人用其他密碼建立了"
+                        : "連線失敗，請檢查網路後再試一次", "error");
+                    return;
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = '加入 / 建立房間';
+                }
+            } else {
+                window.room = { id: rId, password: actualPassword, hash: '' };
             }
 
+            window.isCreatorMode = enableCreator;
             updateRoomUIStatus();
             closeRoomModal();
             renderAll();
-            
+
             if (enableCreator) {
                 showToast(`已建立 / 加入對戰房: ${rId}【👑 創造者模式已啟用】`, "info");
+                loadOpggMeta();
             } else {
                 showToast(`已建立 / 加入對戰房: ${rId}`);
             }
@@ -657,8 +760,10 @@
 
         window.leaveRoom = function() {
             if (unsubscribeRoom) unsubscribeRoom();
-            window.roomState.roomId = '';
-            window.roomState.password = '';
+            unsubscribeRoom = null;
+            roomRef = null;
+            lastSynced = null;
+            window.room = { id: '', password: '', hash: '' };
             window.isCreatorMode = false;
             updateRoomUIStatus();
             closeRoomModal();
@@ -667,26 +772,36 @@
         };
 
         window.syncRoomToCloud = function() {
-            if (!window.roomState.roomId || !db) return;
-            const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', window.roomState.roomId);
-            setDoc(roomDocRef, window.roomState).catch(err => console.error("Cloud save error:", err));
+            if (!window.room.id || !db || !roomRef || !lastSynced) return;
+            const flat = flattenDoc(toCloudDoc(window.roomState));
+            const args = [];
+            Object.keys(flat).forEach(path => {
+                if (flat[path] !== lastSynced[path]) args.push(new FieldPath(...path.split('.')), JSON.parse(flat[path]));
+            });
+            if (!args.length) return;
+            args.push(new FieldPath('updatedAt'), serverTimestamp());
+            lastSynced = flat;
+            updateDoc(roomRef, ...args).catch(err => {
+                console.error("Cloud save error:", err);
+                showToast("同步失敗，請檢查網路或重新加入房間", "error");
+            });
         };
 
-        function updateRoomUIStatus() {
+        function updateRoomUIStatus(problem) {
             const statusEl = document.getElementById('roomStatusText');
             const btnLabel = document.getElementById('roomBtnLabel');
-            if (window.roomState.roomId) {
-                statusEl.innerHTML = `<span class="text-emerald-400 font-bold"><i class="fa-solid fa-signal"></i> 房號: ${window.roomState.roomId}</span> (實時同步中)`;
-                btnLabel.textContent = `對戰房: ${window.roomState.roomId}`;
+            if (window.room.id) {
+                statusEl.innerHTML = problem
+                    ? `<span class="text-rose-400 font-bold"><i class="fa-solid fa-triangle-exclamation"></i> 房號: ${escapeHtml(window.room.id)}</span> (${escapeHtml(problem)})`
+                    : `<span class="text-emerald-400 font-bold"><i class="fa-solid fa-signal"></i> 房號: ${escapeHtml(window.room.id)}</span> (實時同步中)`;
+                btnLabel.textContent = `對戰房: ${window.room.id}`;
             } else {
                 statusEl.textContent = '離線單機模式（可建立對戰房連線）';
                 btnLabel.textContent = '建立 / 加入對戰房';
             }
         }
 
-        window.addEventListener('load', () => {
-            loadChampionData();
-        });
+        loadChampionData();
     </script>
 
     <script>
@@ -695,8 +810,8 @@
             return window.roomState.matchMode === '1v1' ? 1 : 5;
         }
 
-        function getFearlessDisabledChampsForCurrentTeam(side) {
-            const disabledSet = new Set(window.roomState.manualDisabledChamps || []);
+        function getFearlessDisabledChampsForCurrentTeam(side, includeManual = true) {
+            const disabledSet = new Set(includeManual ? (window.roomState.manualDisabledChamps || []) : []);
             const fearlessMode = window.roomState.fearlessMode;
             const currGame = window.roomState.currentGame;
 
@@ -730,37 +845,91 @@
             return usedSet;
         }
 
-        // OP.GG Simulated Win Rate Calculation Engine for Creator Mode
-        function getOpggWinRateData(champId) {
-            let hash = 0;
-            for (let i = 0; i < champId.length; i++) {
-                hash = champId.charCodeAt(i) + ((hash << 5) - hash);
-            }
-            const winRate = (48 + Math.abs(hash % 90) / 10).toFixed(1);
-            const pickRate = (2 + Math.abs((hash * 3) % 180) / 10).toFixed(1);
-            const banRate = (1 + Math.abs((hash * 7) % 250) / 10).toFixed(1);
-
-            // Counter winrate calculation if opponent has picks
-            const currData = window.roomState.games[window.roomState.currentGame] || {};
-            const activeSide = window.activeSlot ? window.activeSlot.side : 'blue';
-            const oppPicks = (activeSide === 'blue' ? currData.redPicks : currData.bluePicks) || [];
-            const validOppPicks = oppPicks.filter(id => id !== null);
-
-            let matchupVsText = "無直接對位紀錄";
-            let counterWinRate = winRate;
-
-            if (validOppPicks.length > 0) {
-                const oppId = validOppPicks[0];
-                const oppChamp = window.championsMap[oppId];
-                if (oppChamp) {
-                    const diff = ((hash % 10) - 4.5).toFixed(1);
-                    counterWinRate = (parseFloat(winRate) + parseFloat(diff)).toFixed(1);
-                    matchupVsText = `VS ${oppChamp.name}: ${counterWinRate}%`;
-                }
-            }
-
-            return { winRate, pickRate, banRate, matchupVsText, counterWinRate };
+        function escapeHtml(text) {
+            return String(text).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
         }
+
+        // ===== OP.GG 數據（只有創造者模式才會連線）=====
+        // 瀏覽器不能直接連 OP.GG，所以經過自己的 Cloudflare Worker 代轉（程式在 worker/）
+        const OPGG_PROXY = 'https://lol-bp-opgg.REPLACE_ME.workers.dev';
+        const OPGG_POS = { TOP: 'top', JUG: 'jungle', MID: 'mid', ADC: 'adc', SUP: 'support' };
+        const OPGG_POS_LABEL = { top: '上路', jungle: '打野', mid: '中路', adc: '下路', support: '輔助' };
+        window.opgg = { status: 'idle', meta: null, error: '', fetchedAt: null, matchups: {} };
+
+        function opggProxyBase() {
+            // 本機測試可用 ?opgg=http://localhost:8787 指到本機的 Worker
+            const override = new URLSearchParams(location.search).get('opgg');
+            if (override && ['localhost', '127.0.0.1'].includes(location.hostname)) return override.replace(/\/$/, '');
+            return OPGG_PROXY;
+        }
+
+        const pct = (x) => (typeof x === 'number' && isFinite(x) ? (x * 100).toFixed(1) : '—');
+
+        async function loadOpggMeta(force) {
+            if (!window.isCreatorMode) return;
+            if (!force && (window.opgg.status === 'loading' || window.opgg.status === 'ready')) return;
+            if (force) window.opgg.matchups = {};
+            window.opgg.status = 'loading';
+            renderCreatorUI();
+            try {
+                const res = await fetch(`${opggProxyBase()}/meta`);
+                const j = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+                window.opgg.meta = j.champions || {};
+                window.opgg.fetchedAt = j.fetchedAt || null;
+                window.opgg.status = 'ready';
+            } catch (e) {
+                console.error('OP.GG 連線失敗：', e);
+                window.opgg.status = 'error';
+                window.opgg.error = String((e && e.message) || e);
+            }
+            if (window.isCreatorMode) renderAll();
+        }
+
+        // 某英雄的 OP.GG 數據；有指定路線（例如目前篩選「上單」）就用那一路，否則用他最常走的那一路
+        function getOpggStats(champ, preferRole) {
+            const meta = window.opgg.meta;
+            if (!meta || !champ) return null;
+            const entry = meta[champ.numId];
+            if (!entry || !entry.positions) return null;
+            const positions = entry.positions;
+            let pos = preferRole ? OPGG_POS[preferRole] : null;
+            if (!pos || !positions[pos]) {
+                pos = Object.keys(positions).sort((a, b) => (positions[b].play || 0) - (positions[a].play || 0))[0];
+            }
+            if (!pos) return null;
+            const st = positions[pos];
+            return { pos, wr: st.wr, pr: st.pr, br: st.br, tier: st.tier, play: st.play };
+        }
+
+        // 兩隻英雄的對位勝率（第一次查會去 OP.GG 抓，抓完自動重畫）
+        function getOpggMatchup(champ, opp) {
+            const stats = getOpggStats(champ);
+            if (!stats) return { status: 'nodata' };
+            const key = `${champ.numId}:${stats.pos}:${opp.numId}`;
+            if (!window.opgg.matchups[key]) fetchOpggMatchup(key, champ, stats.pos, opp);
+            return window.opgg.matchups[key];
+        }
+
+        async function fetchOpggMatchup(key, champ, pos, opp) {
+            window.opgg.matchups[key] = { status: 'loading', pos };
+            try {
+                const res = await fetch(`${opggProxyBase()}/matchup?champ=${encodeURIComponent(champ.numId)}&pos=${pos}&vs=${encodeURIComponent(opp.numId)}`);
+                const j = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+                const row = (j.counters || []).find(c => String(c.id) === String(opp.numId));
+                window.opgg.matchups[key] = row && row.play > 0
+                    ? { status: 'ready', pos, wr: row.win / row.play, play: row.play, tip: j.tip || '' }
+                    : { status: 'nodata', pos, tip: j.tip || '' };
+            } catch (e) {
+                console.error('OP.GG 對位讀取失敗：', e);
+                window.opgg.matchups[key] = { status: 'error', pos, error: String((e && e.message) || e) };
+            }
+            if (window.isCreatorMode) renderCreatorUI();
+        }
+
+        const opggChampUrl = (champ, pos) => `https://op.gg/zh-tw/lol/champions/${champ.id.toLowerCase()}/build${pos ? '/' + pos : ''}`;
+        const opggMatchupUrl = (champ, opp, pos) => `https://op.gg/zh-tw/lol/champions/${champ.id.toLowerCase()}/counters${pos ? '/' + pos : ''}?target_champion=${opp.id.toLowerCase()}`;
 
         function renderAll() {
             renderCreatorUI();
@@ -769,35 +938,64 @@
             renderPickSlots();
             renderBanSlots();
             renderChampionGrid();
+            if (!document.getElementById('manualDisableModal').classList.contains('hidden')) renderManualDisableGrid();
         }
 
         function renderCreatorUI() {
             const badge = document.getElementById('creatorBadge');
             const banner = document.getElementById('creatorBanner');
 
-            if (window.isCreatorMode) {
-                badge.classList.remove('hidden');
-                banner.classList.remove('hidden');
-
-                // Update matchup summary text
-                const currData = window.roomState.games[window.roomState.currentGame] || {};
-                const bPick1 = (currData.bluePicks || [])[0];
-                const rPick1 = (currData.redPicks || [])[0];
-
-                if (bPick1 && rPick1) {
-                    const bChamp = window.championsMap[bPick1];
-                    const rChamp = window.championsMap[rPick1];
-                    if (bChamp && rChamp) {
-                        const stats = getOpggWinRateData(bPick1);
-                        document.getElementById('creatorMatchupSummary').innerHTML = 
-                            `<span class="text-cyan-400 font-bold">${bChamp.name}</span> 對決 <span class="text-rose-400 font-bold">${rChamp.name}</span> - OP.GG 對位預估勝率: <span class="text-amber-300 font-bold">${stats.counterWinRate}%</span> (勝率: ${stats.winRate}% / 登場率: ${stats.pickRate}%)`;
-                    }
-                } else {
-                    document.getElementById('creatorMatchupSummary').textContent = "創作者權限已啟用：選角時英雄卡片將額外疊加 OP.GG 對位與版本勝率數據。";
-                }
-            } else {
+            if (!window.isCreatorMode) {
                 badge.classList.add('hidden');
                 banner.classList.add('hidden');
+                return;
+            }
+            badge.classList.remove('hidden');
+            banner.classList.remove('hidden');
+
+            const statusEl = document.getElementById('opggStatusText');
+            const retryBtn = document.getElementById('opggRetryBtn');
+            const summaryEl = document.getElementById('creatorMatchupSummary');
+            const o = window.opgg;
+            retryBtn.classList.toggle('hidden', o.status !== 'error' && o.status !== 'ready');
+            retryBtn.innerHTML = `<i class="fa-solid fa-rotate"></i> ${o.status === 'error' ? '重新連線' : '更新數據'}`;
+
+            if (o.status === 'idle' || o.status === 'loading') {
+                statusEl.textContent = 'OP.GG 連線中…';
+                summaryEl.textContent = '正在向 OP.GG 取得最新版本的勝率數據。';
+                return;
+            }
+            if (o.status === 'error') {
+                statusEl.textContent = 'OP.GG 連線失敗：';
+                summaryEl.textContent = `${o.error}（可以按右邊「重新連線」再試一次）`;
+                return;
+            }
+
+            const time = o.fetchedAt ? new Date(o.fetchedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) : '';
+            statusEl.textContent = `OP.GG 數據已連線${time ? `（${time} 更新）` : ''}：`;
+
+            // Update matchup summary text
+            const currData = window.roomState.games[window.roomState.currentGame] || {};
+            const bChamp = window.championsMap[(currData.bluePicks || [])[0]];
+            const rChamp = window.championsMap[(currData.redPicks || [])[0]];
+
+            if (bChamp && rChamp) {
+                const stats = getOpggStats(bChamp);
+                const m = getOpggMatchup(bChamp, rChamp);
+                const pos = m.pos || (stats && stats.pos);
+                const matchText = {
+                    loading: 'OP.GG 對位勝率讀取中…',
+                    ready: `OP.GG 對位勝率: <span class="text-amber-300 font-bold">${pct(m.wr)}%</span>（${m.play} 場）`,
+                    nodata: 'OP.GG 這個版本對位場數還不夠',
+                    error: 'OP.GG 對位勝率讀取失敗'
+                }[m.status];
+                const tip = m.tip ? ` title="${escapeHtml('對線提示（OP.GG）：' + m.tip)}"` : '';
+                summaryEl.innerHTML =
+                    `<span class="text-cyan-400 font-bold">${bChamp.name}</span> 對決 <span class="text-rose-400 font-bold">${rChamp.name}</span>${pos ? `（${OPGG_POS_LABEL[pos]}）` : ''} - <span${tip}>${matchText}</span>` +
+                    (stats ? ` (勝率: ${pct(stats.wr)}% / 登場率: ${pct(stats.pr)}%)` : '') +
+                    ` <a href="${opggMatchupUrl(bChamp, rChamp, pos)}" target="_blank" rel="noopener" class="underline text-amber-300 hover:text-amber-200">對位詳情 <i class="fa-solid fa-arrow-up-right-from-square"></i></a>`;
+            } else {
+                summaryEl.textContent = "創作者權限已啟用：選角時英雄卡片將額外疊加 OP.GG 對位與版本勝率數據。";
             }
         }
 
@@ -855,6 +1053,10 @@
 
         function addNewGameTab() {
             const totalGames = Object.keys(window.roomState.games).length;
+            if (totalGames >= 99) {
+                showToast("局數最多 99 局", "warning");
+                return;
+            }
             const newGameNum = totalGames + 1;
             const pickCount = getPickCount();
 
@@ -896,8 +1098,8 @@
                     // OP.GG badge in pick slot if creator
                     let creatorPickBadge = '';
                     if (window.isCreatorMode && champ) {
-                        const stats = getOpggWinRateData(champ.id);
-                        creatorPickBadge = `<span class="text-[10px] bg-purple-900/80 text-purple-200 border border-purple-500/40 px-1.5 py-0.5 rounded ml-auto">勝率: ${stats.winRate}%</span>`;
+                        const stats = getOpggStats(champ);
+                        creatorPickBadge = `<a href="${opggChampUrl(champ, stats && stats.pos)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="在 OP.GG 開啟 ${champ.name}" class="text-[10px] bg-purple-900/80 hover:bg-purple-800 text-purple-200 border border-purple-500/40 px-1.5 py-0.5 rounded ml-auto whitespace-nowrap">勝率: ${stats ? pct(stats.wr) + '%' : '—'}</a>`;
                     }
 
                     html += `
@@ -968,50 +1170,62 @@
             renderSideBans('red', 'redBanSlots');
         }
 
+        // 目前中間英雄池篩選出來的英雄（搜尋＋路線＋近遠程），一鍵全禁/全開也用這份
+        function getFilteredChampions() {
+            const searchKeyword = document.getElementById('searchInput').value.trim().toLowerCase();
+            return window.allChampions.filter(c => {
+                if (searchKeyword && !c.name.toLowerCase().includes(searchKeyword) && !c.id.toLowerCase().includes(searchKeyword) && !c.title.toLowerCase().includes(searchKeyword)) {
+                    return false;
+                }
+                if (window.filterRole !== 'ALL' && !c.roles.includes(window.filterRole)) {
+                    return false;
+                }
+                if (window.filterRange !== 'ALL' && c.rangeType !== window.filterRange) {
+                    return false;
+                }
+                return true;
+            });
+        }
+
         function renderChampionGrid() {
             const container = document.getElementById('championGrid');
-            const searchKeyword = document.getElementById('searchInput').value.trim().toLowerCase();
 
             const currentActiveSide = window.activeSlot ? window.activeSlot.side : 'blue';
-            const fearlessDisabledSet = getFearlessDisabledChampsForCurrentTeam(currentActiveSide);
+            const fearlessDisabledSet = getFearlessDisabledChampsForCurrentTeam(currentActiveSide, false);
+            const manualDisabledSet = new Set(window.roomState.manualDisabledChamps || []);
             const currentGameUsedSet = getCurrentGameUsedChamps();
 
             let visibleCount = 0;
             let html = '';
 
-            window.allChampions.forEach(c => {
-                if (searchKeyword && !c.name.toLowerCase().includes(searchKeyword) && !c.id.toLowerCase().includes(searchKeyword) && !c.title.toLowerCase().includes(searchKeyword)) {
-                    return;
-                }
-
-                if (window.filterRole !== 'ALL' && !c.roles.includes(window.filterRole)) {
-                    return;
-                }
-
-                if (window.filterRange !== 'ALL' && c.rangeType !== window.filterRange) {
-                    return;
-                }
-
+            getFilteredChampions().forEach(c => {
                 visibleCount++;
 
                 const isFearlessBanned = fearlessDisabledSet.has(c.id);
+                const isManualDisabled = manualDisabledSet.has(c.id);
                 const isCurrentGameUsed = currentGameUsedSet.has(c.id);
-                const isDisabled = isFearlessBanned || isCurrentGameUsed;
+                const isDisabled = isFearlessBanned || isManualDisabled || isCurrentGameUsed;
 
                 let disabledBadge = '';
                 if (isCurrentGameUsed) {
                     disabledBadge = '<span class="absolute top-1 right-1 bg-slate-900/90 text-slate-400 text-[10px] px-1 rounded">已用</span>';
                 } else if (isFearlessBanned) {
                     disabledBadge = '<span class="absolute top-1 right-1 bg-rose-950/90 text-rose-400 text-[10px] px-1 rounded border border-rose-800/50">全局BAN</span>';
+                } else if (isManualDisabled) {
+                    disabledBadge = '<span class="absolute top-1 right-1 bg-rose-950/90 text-rose-300 text-[10px] px-1 rounded border border-rose-800/50">已禁用</span>';
                 }
 
                 // OP.GG Win Rate Overlay (Creator Mode Only)
                 let opggBadge = '';
                 if (window.isCreatorMode) {
-                    const stats = getOpggWinRateData(c.id);
+                    const stats = getOpggStats(c, window.filterRole !== 'ALL' ? window.filterRole : null);
+                    const text = window.opgg.status === 'ready' ? (stats ? `${pct(stats.wr)}%` : '—') : (window.opgg.status === 'error' ? '×' : '…');
+                    const tip = stats
+                        ? `OP.GG ${OPGG_POS_LABEL[stats.pos]}｜勝率 ${pct(stats.wr)}%｜登場 ${pct(stats.pr)}%｜禁用 ${pct(stats.br)}%｜${stats.play} 場`
+                        : '沒有 OP.GG 數據';
                     opggBadge = `
-                        <div class="w-full bg-purple-950/90 text-purple-200 text-[9px] font-bold py-0.5 text-center border-t border-purple-500/40 rounded-b-lg">
-                            ${stats.winRate}% <span class="text-[8px] text-amber-300">OP.GG</span>
+                        <div title="${tip}" class="w-full bg-purple-950/90 text-purple-200 text-[9px] font-bold py-0.5 text-center border-t border-purple-500/40 rounded-b-lg">
+                            ${text} <span class="text-[8px] text-amber-300">OP.GG</span>
                         </div>
                     `;
                 }
@@ -1030,6 +1244,51 @@
 
             container.innerHTML = html;
             document.getElementById('champCountText').textContent = `顯示 ${visibleCount} / ${window.allChampions.length} 隻`;
+        }
+
+        function describeCurrentFilter() {
+            const roleLabel = { ALL: '', TOP: '上單', JUG: '打野', MID: '中單', ADC: '下路', SUP: '輔助' }[window.filterRole] || '';
+            const rangeLabel = { ALL: '', MELEE: '近戰', RANGED: '遠程' }[window.filterRange] || '';
+            const keyword = document.getElementById('searchInput').value.trim();
+            const parts = [roleLabel, rangeLabel, keyword ? `搜尋「${keyword}」` : ''].filter(Boolean);
+            return parts.length ? parts.join('・') : '全部英雄';
+        }
+
+        // 一鍵全禁：把目前篩選出來的英雄加進手動禁用（跟「英雄開關管理」同一份，所有局數都有效、會同步給房間裡的人）
+        function banAllFiltered() {
+            const list = getFilteredChampions();
+            if (!list.length) {
+                showToast("目前的篩選沒有任何英雄", "warning");
+                return;
+            }
+            const disabled = new Set(window.roomState.manualDisabledChamps || []);
+            let added = 0;
+            list.forEach(c => { if (!disabled.has(c.id)) { disabled.add(c.id); added++; } });
+            if (!added) {
+                showToast(`${describeCurrentFilter()}已經全部禁用了`);
+                return;
+            }
+            window.roomState.manualDisabledChamps = [...disabled];
+            syncAndRender();
+            showToast(`已禁用 ${added} 隻英雄（${describeCurrentFilter()}）`);
+        }
+
+        function unbanAllFiltered() {
+            const list = getFilteredChampions();
+            if (!list.length) {
+                showToast("目前的篩選沒有任何英雄", "warning");
+                return;
+            }
+            const disabled = new Set(window.roomState.manualDisabledChamps || []);
+            let removed = 0;
+            list.forEach(c => { if (disabled.delete(c.id)) removed++; });
+            if (!removed) {
+                showToast(`${describeCurrentFilter()}目前沒有被禁用的`);
+                return;
+            }
+            window.roomState.manualDisabledChamps = [...disabled];
+            syncAndRender();
+            showToast(`已解除 ${removed} 隻英雄的禁用（${describeCurrentFilter()}）`);
         }
 
         function selectSlot(side, type, index) {
@@ -1182,8 +1441,8 @@
         }
 
         function openRoomModal() {
-            document.getElementById('modalRoomIdInput').value = window.roomState.roomId || '';
-            document.getElementById('modalRoomPasswordInput').value = window.roomState.password || '';
+            document.getElementById('modalRoomIdInput').value = window.room.id || '';
+            document.getElementById('modalRoomPasswordInput').value = window.room.id ? (window.isCreatorMode ? '**' : '') + (window.room.password || '') : '';
             document.getElementById('roomModal').classList.remove('hidden');
         }
         function closeRoomModal() { document.getElementById('roomModal').classList.add('hidden'); }
@@ -1208,8 +1467,12 @@
             const fearlessRadios = document.getElementsByName('fearlessRule');
             fearlessRadios.forEach(r => { if (r.checked) window.roomState.fearlessMode = r.value; });
 
-            window.roomState.g1BanCount = parseInt(document.getElementById('g1BanCountInput').value) || 3;
-            window.roomState.g2BanCount = parseInt(document.getElementById('g2BanCountInput').value) || 2;
+            const readBanCount = (id, fallback) => {
+                const n = parseInt(document.getElementById(id).value, 10);
+                return Number.isFinite(n) ? Math.min(5, Math.max(0, n)) : fallback;
+            };
+            window.roomState.g1BanCount = readBanCount('g1BanCountInput', 3);
+            window.roomState.g2BanCount = readBanCount('g2BanCountInput', 2);
 
             // Ensure all existing game arrays fit new match mode pick count
             const newPickCount = getPickCount();
@@ -1271,11 +1534,13 @@
                 window.roomState.manualDisabledChamps.push(id);
             }
             renderManualDisableGrid();
+            window.syncRoomToCloud();
         }
 
         function clearAllManualDisabled() {
             window.roomState.manualDisabledChamps = [];
             renderManualDisableGrid();
+            window.syncRoomToCloud();
             showToast("已重置所有英雄為啟用狀態");
         }
 

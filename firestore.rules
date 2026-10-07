@@ -1,0 +1,35 @@
+rules_version = '2';
+
+// 對戰房：rooms/{roomId}
+// - 沒有帳號系統，知道房號就讀得到；但不能列出所有房間（list 關閉）
+// - 密碼雜湊建立後不能改，避免輸錯密碼的人把房間蓋掉
+// - 欄位與大小都有上限，防止被塞垃圾資料
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} {
+      function validRoom(d) {
+        return d.keys().hasOnly(['passwordHash', 'matchMode', 'fearlessMode', 'g1BanCount', 'g2BanCount',
+                                 'currentGame', 'blueTeamName', 'redTeamName', 'manualDisabledChamps',
+                                 'games', 'updatedAt'])
+          && d.passwordHash is string && d.passwordHash.size() <= 64
+          && d.matchMode in ['5v5', '1v1']
+          && d.fearlessMode in ['hard', 'soft', 'standard']
+          && d.g1BanCount is int && d.g1BanCount >= 0 && d.g1BanCount <= 10
+          && d.g2BanCount is int && d.g2BanCount >= 0 && d.g2BanCount <= 10
+          && d.currentGame is int && d.currentGame >= 1 && d.currentGame <= 99
+          && d.blueTeamName is string && d.blueTeamName.size() <= 40
+          && d.redTeamName is string && d.redTeamName.size() <= 40
+          && d.manualDisabledChamps is list && d.manualDisabledChamps.size() <= 400
+          && d.games is map && d.games.size() <= 99
+          && (!('updatedAt' in d) || d.updatedAt is timestamp);
+      }
+
+      allow get: if roomId.size() <= 64;
+      allow list: if false;
+      allow create: if roomId.size() <= 64 && validRoom(request.resource.data);
+      allow update: if request.resource.data.passwordHash == resource.data.passwordHash
+                    && validRoom(request.resource.data);
+      allow delete: if false;
+    }
+  }
+}

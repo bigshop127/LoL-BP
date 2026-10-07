@@ -1,0 +1,16 @@
+{
+  "name": "lol-bp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:worker": "node tests/worker.test.mjs",
+    "test:worker:live": "node tests/worker.test.mjs --live",
+    "test:rules": "firebase emulators:exec --only firestore \"node tests/rules.test.mjs\"",
+    "test:e2e": "firebase emulators:exec --only firestore \"node tests/e2e.test.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.19.0",
+    "playwright-core": "^1.63.0"
+  }
+}
