@@ -6,7 +6,7 @@
 - 房間同步改接自己的 Firebase（`lol-bp-fearless`，Firestore 在 asia-east1 台灣）。
   - 雲端只存密碼的 SHA-256 雜湊（`lol-bp:房號:密碼`），規則禁止改雜湊、禁止列出所有房間、禁止刪除。
   - 只上傳有變動的欄位（例如 `games.2.bluePicks`），兩人同時點不同格不會互相蓋掉。
-- OP.GG 數據：瀏覽器不能直接連 OP.GG（沒有 CORS、也擋 iframe），由 `worker/` 代轉 OP.GG 官方資料介面 `mcp-api.op.gg`。
+- OP.GG 數據：瀏覽器不能直接連 OP.GG（沒有 CORS、也擋 iframe），由 `worker/` 代轉 OP.GG 官方資料介面 `mcp-api.op.gg`，部署在 `https://lol-bp-opgg.bigshop127.workers.dev`（Cloudflare 免費方案）。
   - `/meta`：各路勝率／登場率／禁用率（快取 30 分鐘）
   - `/matchup?champ=103&pos=mid&vs=134`：對位戰績（快取 3 小時）
   - 只有創造者模式的人會呼叫。

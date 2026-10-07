@@ -851,7 +851,7 @@
 
         // ===== OP.GG 數據（只有創造者模式才會連線）=====
         // 瀏覽器不能直接連 OP.GG，所以經過自己的 Cloudflare Worker 代轉（程式在 worker/）
-        const OPGG_PROXY = 'https://lol-bp-opgg.REPLACE_ME.workers.dev';
+        const OPGG_PROXY = 'https://lol-bp-opgg.bigshop127.workers.dev';
         const OPGG_POS = { TOP: 'top', JUG: 'jungle', MID: 'mid', ADC: 'adc', SUP: 'support' };
         const OPGG_POS_LABEL = { top: '上路', jungle: '打野', mid: '中路', adc: '下路', support: '輔助' };
         window.opgg = { status: 'idle', meta: null, error: '', fetchedAt: null, matchups: {} };
