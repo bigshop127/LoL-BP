@@ -194,6 +194,13 @@ await test('原本的硬全局規則還在：Game 1 選過的阿璃在 Game 2 �
   await waitText(B, '#toastMsg', '全局禁用');
 });
 
+await test('Game 1 Ban 掉的劫，在 Game 2 也顯示全局BAN、不能再 Ban 或選', async () => {
+  for (const page of [A, B]) assert.ok((await card(page, 'Zed').innerText()).includes('全局BAN'));
+  await pick(B, 'red', 'ban', 0, 'Zed');
+  await waitText(B, '#toastMsg', '全局禁用');
+  assert.ok(!(await B.locator('#redBanSlots img[src*="Zed"]').count()));
+});
+
 await test('一鍵全開（上單分頁）：上單恢復，其他手動禁用不受影響', async () => {
   await A.click('#roleFilters button:has-text("下路 ADC")');
   await A.click('#btnBanAll'); // 先多禁下路
@@ -216,13 +223,13 @@ await test('搜尋＋全部分頁：一鍵全禁只禁搜尋結果，再全開�
   await A.fill('#searchInput', '');
   await A.dispatchEvent('#searchInput', 'input');
   const disabledAll = await A.locator('#championGrid > div.disabled-champ').count();
-  // 只有阿璃被手動禁（加上 Game 1 硬全局的阿璃、李星、星朵拉、蓋倫）
+  // 只有阿璃被手動禁（加上 Game 1 硬全局的阿璃、李星、星朵拉、蓋倫、劫）
   assert.ok(disabledAll <= 5, `禁用數 ${disabledAll}`);
   await A.click('#btnBanAll');
   const total = await A.locator('#championGrid > div').count();
   assert.equal(await A.locator('#championGrid > div.disabled-champ').count(), total, '全部分頁全禁 → 全部禁用');
   await A.click('#btnUnbanAll');
-  await B.waitForFunction(() => document.querySelectorAll('#championGrid > div.disabled-champ').length <= 4, null, { timeout: 10000 });
+  await B.waitForFunction(() => document.querySelectorAll('#championGrid > div.disabled-champ').length <= 5, null, { timeout: 10000 });
 });
 
 await test('Ban 位數可以設成 0', async () => {

@@ -366,7 +366,7 @@
                             <input type="radio" name="fearlessRule" value="hard" class="mt-1 accent-amber-500">
                             <div>
                                 <div class="font-bold text-sm text-amber-300">硬全局 (Hard Fearless)</div>
-                                <div class="text-xs text-slate-400">前幾局被「任意一方」選過的英雄，後續局數雙方皆不可再選。</div>
+                                <div class="text-xs text-slate-400">前幾局被「任意一方」選過或禁用的英雄，後續局數雙方皆不可再選。</div>
                             </div>
                         </label>
 
@@ -374,7 +374,7 @@
                             <input type="radio" name="fearlessRule" value="soft" class="mt-1 accent-amber-500">
                             <div>
                                 <div class="font-bold text-sm text-cyan-300">軟全局 (Soft Fearless)</div>
-                                <div class="text-xs text-slate-400">前幾局被「我方」選過的英雄，我方後續不可再選，對方若沒選過仍可選。</div>
+                                <div class="text-xs text-slate-400">前幾局被「我方」選過的英雄，我方後續不可再選，對方若沒選過仍可選；前幾局禁用的英雄，雙方皆不可再選。</div>
                             </div>
                         </label>
 
@@ -828,6 +828,9 @@
                     const teamPicks = side === 'blue' ? gameData.bluePicks : gameData.redPicks;
                     (teamPicks || []).forEach(id => id && disabledSet.add(id));
                 }
+                // 前幾局 Ban 掉的英雄，後續局數雙方都不能再用（硬全局、軟全局都算）
+                (gameData.blueBans || []).forEach(id => id && disabledSet.add(id));
+                (gameData.redBans || []).forEach(id => id && disabledSet.add(id));
             }
             return disabledSet;
         }
