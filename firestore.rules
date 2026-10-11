@@ -12,7 +12,7 @@ service cloud.firestore {
                                  'currentGame', 'blueTeamName', 'redTeamName', 'manualDisabledChamps',
                                  'games', 'updatedAt'])
           && d.passwordHash is string && d.passwordHash.size() <= 64
-          && d.matchMode in ['5v5', '1v1']
+          && d.matchMode in ['1v1', '2v2', '3v3', '4v4', '5v5']
           && d.fearlessMode in ['hard', 'soft', 'standard']
           && d.g1BanCount is int && d.g1BanCount >= 0 && d.g1BanCount <= 10
           && d.g2BanCount is int && d.g2BanCount >= 0 && d.g2BanCount <= 10

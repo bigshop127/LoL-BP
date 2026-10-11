@@ -167,9 +167,15 @@
                     <span id="displayActiveSlot" class="font-semibold text-cyan-400">自由選擇模式</span>
                 </div>
             </div>
-            <div class="flex items-center gap-2">
-                <button onclick="copyDraftSummary()" class="px-3 py-1 rounded-md bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-medium shadow text-xs transition flex items-center gap-1.5">
+            <div class="flex flex-wrap items-center gap-2">
+                <button onclick="copyDraftSummary()" title="複製目前這一局的 BP" class="px-3 py-1 rounded-md bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-medium shadow text-xs transition flex items-center gap-1.5">
                     <i class="fa-solid fa-copy"></i> 複製 BP 戰報
+                </button>
+                <button id="btnCopyAll" onclick="copySeriesSummary()" title="把每一局的 BP 一次複製起來（沒選任何英雄的局數會略過）" class="px-3 py-1 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 font-medium text-xs transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-layer-group"></i> 複製全部對戰
+                </button>
+                <button id="btnDownloadAll" onclick="downloadSeriesSummary()" title="把每一局的 BP 下載成文字檔" class="px-3 py-1 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 font-medium text-xs transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-download"></i> 下載全部 .txt
                 </button>
                 <button onclick="clearCurrentGameDraft()" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition">
                     <i class="fa-solid fa-rotate-left"></i> 重置本局
@@ -250,6 +256,10 @@
                             <button onclick="setFilterRange('ALL')" class="range-btn active px-2 py-1 rounded-lg text-xs font-semibold text-amber-400 bg-slate-800 transition">不限距離</button>
                             <button onclick="setFilterRange('MELEE')" class="range-btn px-2 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition">近戰</button>
                             <button onclick="setFilterRange('RANGED')" class="range-btn px-2 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition">遠程</button>
+                            <div class="h-4 w-[1px] bg-slate-800 mx-0.5"></div>
+                            <button id="btnAvailableOnly" onclick="toggleAvailableOnly()" title="只顯示目前還能選的英雄（已禁用、全局BAN、本局已用的都先藏起來）" class="px-2 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition flex items-center gap-1 whitespace-nowrap">
+                                <i class="fa-solid fa-filter"></i> 只顯示可用
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -337,25 +347,47 @@
             <p class="text-xs text-slate-400 mb-5">切換對戰人數模式、全局禁用規則與 Ban 位數量。</p>
 
             <div class="space-y-5">
-                <!-- Match Mode Options (1v1 vs 5v5) -->
+                <!-- Match Mode Options (1v1 ~ 5v5) -->
                 <div>
                     <label class="block text-sm font-bold text-slate-200 mb-2">對戰人數模式 (Match Mode)</label>
-                    <div class="grid grid-cols-2 gap-3">
-                        <label class="flex items-center gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/60 cursor-pointer hover:border-slate-700">
-                            <input type="radio" name="matchMode" value="5v5" class="accent-amber-500">
-                            <div>
-                                <div class="font-bold text-sm text-slate-100">5 vs 5 團隊戰</div>
-                                <div class="text-[11px] text-slate-400">雙方各選 5 隻英雄</div>
+                    <div class="grid grid-cols-5 gap-2" id="matchModeOptions">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="matchMode" value="1v1" class="peer sr-only">
+                            <div class="p-2 rounded-xl border border-slate-800 bg-slate-950/60 text-center hover:border-slate-700 peer-checked:border-amber-500 peer-checked:bg-amber-500/10 transition">
+                                <div class="font-bold text-sm text-slate-100">1v1</div>
+                                <div class="text-[10px] text-slate-400">單挑</div>
                             </div>
                         </label>
-                        <label class="flex items-center gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/60 cursor-pointer hover:border-slate-700">
-                            <input type="radio" name="matchMode" value="1v1" class="accent-amber-500">
-                            <div>
-                                <div class="font-bold text-sm text-cyan-300">1 vs 1 單挑戰</div>
-                                <div class="text-[11px] text-slate-400">雙方各選 1 隻英雄</div>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="matchMode" value="2v2" class="peer sr-only">
+                            <div class="p-2 rounded-xl border border-slate-800 bg-slate-950/60 text-center hover:border-slate-700 peer-checked:border-amber-500 peer-checked:bg-amber-500/10 transition">
+                                <div class="font-bold text-sm text-slate-100">2v2</div>
+                                <div class="text-[10px] text-slate-400">各 2 隻</div>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="matchMode" value="3v3" class="peer sr-only">
+                            <div class="p-2 rounded-xl border border-slate-800 bg-slate-950/60 text-center hover:border-slate-700 peer-checked:border-amber-500 peer-checked:bg-amber-500/10 transition">
+                                <div class="font-bold text-sm text-slate-100">3v3</div>
+                                <div class="text-[10px] text-slate-400">各 3 隻</div>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="matchMode" value="4v4" class="peer sr-only">
+                            <div class="p-2 rounded-xl border border-slate-800 bg-slate-950/60 text-center hover:border-slate-700 peer-checked:border-amber-500 peer-checked:bg-amber-500/10 transition">
+                                <div class="font-bold text-sm text-slate-100">4v4</div>
+                                <div class="text-[10px] text-slate-400">各 4 隻</div>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="matchMode" value="5v5" class="peer sr-only">
+                            <div class="p-2 rounded-xl border border-slate-800 bg-slate-950/60 text-center hover:border-slate-700 peer-checked:border-amber-500 peer-checked:bg-amber-500/10 transition">
+                                <div class="font-bold text-sm text-slate-100">5v5</div>
+                                <div class="text-[10px] text-slate-400">團隊戰</div>
                             </div>
                         </label>
                     </div>
+                    <p class="text-[11px] text-slate-500 mt-1.5">改模式會保留已選的英雄；人數變少時，多出來的 Pick 位會清掉。</p>
                 </div>
 
                 <!-- Fearless Mode Options -->
@@ -489,6 +521,7 @@
         window.championsMap = {};
         window.filterRole = 'ALL';
         window.filterRange = 'ALL';
+        window.showAvailableOnly = false; // 中間英雄池只顯示還能選的（只影響自己這台）
         window.manualFilterRole = 'ALL';
         window.manualFilterRange = 'ALL';
         window.activeSlot = null;
@@ -497,7 +530,7 @@
 
         // Synchronized Room State
         window.roomState = {
-            matchMode: '5v5', // '5v5' | '1v1'
+            matchMode: '5v5', // '1v1' | '2v2' | '3v3' | '4v4' | '5v5'
             fearlessMode: 'hard', // 'hard' | 'soft' | 'standard'
             g1BanCount: 3,
             g2BanCount: 2,
@@ -624,7 +657,7 @@
 
         function toCloudDoc(state) {
             const d = {
-                matchMode: state.matchMode === '1v1' ? '1v1' : '5v5',
+                matchMode: MATCH_MODES.includes(state.matchMode) ? state.matchMode : '5v5',
                 fearlessMode: ['hard', 'soft', 'standard'].includes(state.fearlessMode) ? state.fearlessMode : 'hard',
                 g1BanCount: clampInt(state.g1BanCount, 0, 5, 3),
                 g2BanCount: clampInt(state.g2BanCount, 0, 5, 2),
@@ -645,7 +678,7 @@
         function normalizeRoomState(data) {
             const d = toCloudDoc(data || {});
             if (!Object.keys(d.games).length) {
-                const pickCount = d.matchMode === '1v1' ? 1 : 5;
+                const pickCount = pickCountOf(d.matchMode);
                 d.games[1] = { bluePicks: Array(pickCount).fill(null), redPicks: Array(pickCount).fill(null), blueBans: [], redBans: [] };
             }
             return d;
@@ -673,7 +706,8 @@
                 const prevGame = window.roomState.currentGame;
                 window.roomState = normalizeRoomState(data);
                 lastSynced = flattenDoc(toCloudDoc(window.roomState));
-                if (window.roomState.currentGame !== prevGame) window.activeSlot = null;
+                // 換局、或朋友改了模式／Ban 位數讓目前選中的格子不存在了，就取消選取
+                if (window.roomState.currentGame !== prevGame || !isSlotValid(window.activeSlot)) window.activeSlot = null;
                 updateRoomUIStatus();
                 renderAll();
             }, (error) => {
@@ -805,9 +839,23 @@
     </script>
 
     <script>
-        // Helper to get pick slots count based on 1v1 or 5v5 mode
+        // 對戰人數模式：每隊 Pick 位數就是模式的第一個數字
+        const MATCH_MODES = ['1v1', '2v2', '3v3', '4v4', '5v5'];
+        const MATCH_MODE_LABEL = { '1v1': '1 vs 1 單挑模式', '2v2': '2 vs 2 對戰', '3v3': '3 vs 3 對戰', '4v4': '4 vs 4 對戰', '5v5': '5 vs 5 團隊對戰' };
+        const MATCH_MODE_SHORT = { '1v1': '1v1 單挑', '2v2': '2v2', '3v3': '3v3', '4v4': '4v4', '5v5': '5v5 團隊' };
+        function pickCountOf(mode) {
+            return MATCH_MODES.includes(mode) ? Number(mode[0]) : 5;
+        }
         function getPickCount() {
-            return window.roomState.matchMode === '1v1' ? 1 : 5;
+            return pickCountOf(window.roomState.matchMode);
+        }
+        function getBanCount() {
+            return window.roomState.currentGame === 1 ? window.roomState.g1BanCount : window.roomState.g2BanCount;
+        }
+        // 選中的格子在目前模式／Ban 位數下還存在嗎
+        function isSlotValid(slot) {
+            if (!slot) return false;
+            return slot.index >= 0 && slot.index < (slot.type === 'pick' ? getPickCount() : getBanCount());
         }
 
         function getFearlessDisabledChampsForCurrentTeam(side, includeManual = true) {
@@ -1004,15 +1052,14 @@
 
         function renderHeaderAndInfo() {
             // Match mode
-            document.getElementById('displayMatchMode').textContent = window.roomState.matchMode === '1v1' ? '1 vs 1 單挑模式' : '5 vs 5 團隊對戰';
+            document.getElementById('displayMatchMode').textContent = MATCH_MODE_LABEL[window.roomState.matchMode] || MATCH_MODE_LABEL['5v5'];
 
             // Fearless mode
             const modeMap = { 'hard': '硬全局 (Hard)', 'soft': '軟全局 (Soft)', 'standard': '標準 BP' };
             document.getElementById('displayFearlessMode').textContent = modeMap[window.roomState.fearlessMode];
 
             // Ban count
-            const currBanCount = window.roomState.currentGame === 1 ? window.roomState.g1BanCount : window.roomState.g2BanCount;
-            document.getElementById('displayBanCount').textContent = `雙方各 ${currBanCount} 隻`;
+            document.getElementById('displayBanCount').textContent = `雙方各 ${getBanCount()} 隻`;
 
             // Team Names
             const blueInput = document.getElementById('blueTeamNameInput');
@@ -1199,15 +1246,21 @@
             const currentGameUsedSet = getCurrentGameUsedChamps();
 
             let visibleCount = 0;
+            let hiddenCount = 0;
             let html = '';
 
             getFilteredChampions().forEach(c => {
-                visibleCount++;
-
                 const isFearlessBanned = fearlessDisabledSet.has(c.id);
                 const isManualDisabled = manualDisabledSet.has(c.id);
                 const isCurrentGameUsed = currentGameUsedSet.has(c.id);
                 const isDisabled = isFearlessBanned || isManualDisabled || isCurrentGameUsed;
+
+                // 「只顯示可用」：不能選的直接不畫
+                if (window.showAvailableOnly && isDisabled) {
+                    hiddenCount++;
+                    return;
+                }
+                visibleCount++;
 
                 let disabledBadge = '';
                 if (isCurrentGameUsed) {
@@ -1245,8 +1298,24 @@
                 `;
             });
 
+            if (!visibleCount && window.showAvailableOnly && hiddenCount) {
+                html = `<div class="col-span-full text-center text-sm text-slate-500 py-10">目前篩選的 ${hiddenCount} 隻英雄都不能選了</div>`;
+            }
             container.innerHTML = html;
-            document.getElementById('champCountText').textContent = `顯示 ${visibleCount} / ${window.allChampions.length} 隻`;
+            document.getElementById('champCountText').textContent = window.showAvailableOnly
+                ? `可用 ${visibleCount} 隻（藏起 ${hiddenCount} 隻）`
+                : `顯示 ${visibleCount} / ${window.allChampions.length} 隻`;
+        }
+
+        function toggleAvailableOnly() {
+            window.showAvailableOnly = !window.showAvailableOnly;
+            const btn = document.getElementById('btnAvailableOnly');
+            btn.classList.toggle('bg-emerald-600', window.showAvailableOnly);
+            btn.classList.toggle('hover:bg-emerald-500', window.showAvailableOnly);
+            btn.classList.toggle('text-white', window.showAvailableOnly);
+            btn.classList.toggle('text-slate-400', !window.showAvailableOnly);
+            btn.classList.toggle('hover:bg-slate-800', !window.showAvailableOnly);
+            renderChampionGrid();
         }
 
         function describeCurrentFilter() {
@@ -1305,6 +1374,12 @@
         function clickChampion(champId) {
             if (!window.activeSlot) {
                 showToast("請先點選左側或右側欄位 (Pick / Ban)，再點擊英雄！", "warning");
+                return;
+            }
+            if (!isSlotValid(window.activeSlot)) {
+                window.activeSlot = null;
+                renderAll();
+                showToast("這個欄位已經不存在（模式或 Ban 位數改了），請重新點選欄位", "warning");
                 return;
             }
 
@@ -1477,19 +1552,22 @@
             window.roomState.g1BanCount = readBanCount('g1BanCountInput', 3);
             window.roomState.g2BanCount = readBanCount('g2BanCountInput', 2);
 
-            // Ensure all existing game arrays fit new match mode pick count
+            // 每一局的 Pick 位改成新模式的數量：已選的保留，人數變少時多出來的清掉
             const newPickCount = getPickCount();
+            let dropped = 0;
             Object.keys(window.roomState.games).forEach(g => {
                 const game = window.roomState.games[g];
-                if (!game.bluePicks || game.bluePicks.length !== newPickCount) {
-                    game.bluePicks = Array(newPickCount).fill(null);
-                    game.redPicks = Array(newPickCount).fill(null);
-                }
+                ['bluePicks', 'redPicks'].forEach(k => {
+                    const old = game[k] || [];
+                    old.slice(newPickCount).forEach(id => { if (id) dropped++; });
+                    game[k] = Array.from({ length: newPickCount }, (_, i) => old[i] || null);
+                });
             });
+            if (!isSlotValid(window.activeSlot)) window.activeSlot = null;
 
             closeSettingsModal();
             syncAndRender();
-            showToast("規則設定已儲存");
+            showToast(dropped ? `規則設定已儲存（人數變少，清掉 ${dropped} 個多出來的 Pick）` : "規則設定已儲存");
         }
 
         function openManualDisableModal() {
@@ -1568,40 +1646,96 @@
             showToast("已重置所有局數對戰紀錄");
         }
 
-        function copyDraftSummary() {
-            const currGame = window.roomState.currentGame;
-            const gameData = window.roomState.games[currGame];
+        // ===== BP 戰報（本局複製／全部對戰複製或下載）=====
+        function seriesModeText() {
             const modeText = { 'hard': '硬全局', 'soft': '軟全局', 'standard': '標準 BP' }[window.roomState.fearlessMode];
-            const matchText = window.roomState.matchMode === '1v1' ? '1v1 單挑' : '5v5 團隊';
+            const matchText = MATCH_MODE_SHORT[window.roomState.matchMode] || MATCH_MODE_SHORT['5v5'];
+            return `${matchText} (${modeText})`;
+        }
 
+        // 一局的雙方禁用／選角（兩種戰報共用）
+        function formatGameSides(gameData) {
             const formatChampList = (list) => (list || []).map(id => window.championsMap[id] ? window.championsMap[id].name : '無').join(', ');
-
-            const bluePicks = formatChampList(gameData.bluePicks);
-            const redPicks = formatChampList(gameData.redPicks);
-            const blueBans = formatChampList(gameData.blueBans);
-            const redBans = formatChampList(gameData.redBans);
-
-            const summary = 
-`=== 英雄聯盟 BP戰報 (Game ${currGame}) ===
-賽制模式：${matchText} (${modeText})
-
-【藍方：${window.roomState.blueTeamName}】
-禁用：${blueBans || '無'}
-選角：${bluePicks || '無'}
+            const g = gameData || {};
+            return `【藍方：${window.roomState.blueTeamName}】
+禁用：${formatChampList(g.blueBans) || '無'}
+選角：${formatChampList(g.bluePicks) || '無'}
 
 【紅方：${window.roomState.redTeamName}】
-禁用：${redBans || '無'}
-選角：${redPicks || '無'}
-=================================`;
+禁用：${formatChampList(g.redBans) || '無'}
+選角：${formatChampList(g.redPicks) || '無'}`;
+        }
 
+        const gameHasDraft = (gameData) => ['bluePicks', 'redPicks', 'blueBans', 'redBans'].some(k => ((gameData || {})[k] || []).some(Boolean));
+
+        function copyText(text) {
             const textArea = document.createElement("textarea");
-            textArea.value = summary;
+            textArea.value = text;
             document.body.appendChild(textArea);
             textArea.select();
-            document.execCommand('copy');
+            const ok = document.execCommand('copy');
             document.body.removeChild(textArea);
+            return ok;
+        }
 
-            showToast("已成功複製 BP 戰報至剪貼簿！");
+        function copyDraftSummary() {
+            const currGame = window.roomState.currentGame;
+            const summary =
+`=== 英雄聯盟 BP戰報 (Game ${currGame}) ===
+賽制模式：${seriesModeText()}
+
+${formatGameSides(window.roomState.games[currGame])}
+=================================`;
+
+            if (copyText(summary)) showToast("已成功複製 BP 戰報至剪貼簿！");
+            else showToast("複製失敗，請再試一次", "error");
+        }
+
+        // 全部對戰：每一局依序排下來，完全沒選任何英雄的局數略過；沒有任何紀錄時回傳 null
+        function buildSeriesSummary() {
+            const games = Object.keys(window.roomState.games).map(Number).sort((a, b) => a - b)
+                .filter(g => gameHasDraft(window.roomState.games[g]));
+            if (!games.length) return null;
+
+            const exportedAt = new Date().toLocaleString('zh-TW', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+            const header =
+`=== 英雄聯盟 BP戰報（全部對戰，共 ${games.length} 局）===
+賽制模式：${seriesModeText()}${window.room.id ? `\n對戰房：${window.room.id}` : ''}
+匯出時間：${exportedAt}`;
+            const body = games.map(g => `----- Game ${g} -----\n${formatGameSides(window.roomState.games[g])}`).join('\n\n');
+            return { count: games.length, text: `${header}\n\n${body}\n=================================` };
+        }
+
+        function copySeriesSummary() {
+            const series = buildSeriesSummary();
+            if (!series) {
+                showToast("還沒有任何一局有 BP 紀錄", "warning");
+                return;
+            }
+            if (copyText(series.text)) showToast(`已複製全部對戰（${series.count} 局）至剪貼簿！`);
+            else showToast("複製失敗，請改用「下載全部 .txt」", "error");
+        }
+
+        function downloadSeriesSummary() {
+            const series = buildSeriesSummary();
+            if (!series) {
+                showToast("還沒有任何一局有 BP 紀錄", "warning");
+                return;
+            }
+            const d = new Date();
+            const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const roomPart = window.room.id ? window.room.id.replace(/[\\/:*?"<>|\s]+/g, '_') : '單機';
+            // 開頭加 BOM，舊版記事本打開中文才不會變亂碼
+            const blob = new Blob(['﻿' + series.text.replace(/\n/g, '\r\n')], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `LoL-BP_${roomPart}_${date}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            showToast(`已下載全部對戰（${series.count} 局）`);
         }
 
         function showToast(msg, type = "info") {

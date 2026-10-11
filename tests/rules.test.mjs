@@ -63,11 +63,18 @@ await test('不能刪房間', async () => {
 });
 await test('不收奇怪的欄位或數值', async () => {
   await assertFails(setDoc(doc(db(), 'rooms', 'r1'), room({ hacked: true })));
-  await assertFails(setDoc(doc(db(), 'rooms', 'r2'), room({ matchMode: '3v3' })));
+  await assertFails(setDoc(doc(db(), 'rooms', 'r2'), room({ matchMode: '6v6' })));
   await assertFails(setDoc(doc(db(), 'rooms', 'r3'), room({ g1BanCount: 99 })));
   await assertFails(setDoc(doc(db(), 'rooms', 'r4'), room({ currentGame: 0 })));
   await assertFails(setDoc(doc(db(), 'rooms', 'r5'), room({ blueTeamName: 'x'.repeat(41) })));
   await assertFails(setDoc(doc(db(), 'rooms', 'r6'), room({ manualDisabledChamps: 'Ahri' })));
+});
+await test('1v1～5v5 五種模式都可以建房、也可以中途改', async () => {
+  for (const m of ['1v1', '2v2', '3v3', '4v4', '5v5']) {
+    await assertSucceeds(setDoc(doc(db(), 'rooms', `m-${m}`), room({ matchMode: m })));
+  }
+  await assertSucceeds(updateDoc(doc(db(), 'rooms', 'm-5v5'), { matchMode: '3v3', 'games.1.bluePicks': [null, null, null] }));
+  await assertFails(updateDoc(doc(db(), 'rooms', 'm-5v5'), { matchMode: '0v0' }));
 });
 await test('房號太長不行', async () => {
   await assertFails(setDoc(doc(db(), 'rooms', 'x'.repeat(65)), room()));

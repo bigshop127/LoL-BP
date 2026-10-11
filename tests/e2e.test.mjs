@@ -245,6 +245,130 @@ await test('創造者重開房間視窗，密碼欄保留 **（重新加入不�
   await A.click('#roomModal button[onclick="closeRoomModal()"]');
 });
 
+await test('只顯示可用：藏起全局BAN／本局已用／手動禁用的英雄，只影響自己這台', async () => {
+  // 現在在 Game 2（硬全局）：Game 1 的阿璃、李星、星朵拉、蓋倫、劫都是全局BAN
+  await A.click('#btnAvailableOnly');
+  assert.equal(await A.locator('#championGrid > div.disabled-champ').count(), 0, '開了之後不該有灰掉的卡片');
+  assert.equal(await card(A, 'Ahri').count(), 0);
+  assert.equal(await card(A, 'Zed').count(), 0);
+  assert.equal(await card(A, 'Jinx').count(), 1);
+  await waitText(A, '#champCountText', '藏起 5 隻');
+  // 本局選走的也會藏起來
+  await pick(A, 'blue', 'pick', 0, 'Jinx');
+  await waitText(A, '#bluePickSlots', '吉茵珂絲');
+  assert.equal(await card(A, 'Jinx').count(), 0);
+  await waitText(A, '#champCountText', '藏起 6 隻');
+  // 手動禁用的也藏起來；篩選結果全部不能選時顯示提示
+  await A.fill('#searchInput', '達瑞斯');
+  await A.click('#btnBanAll');
+  await waitText(A, '#championGrid', '都不能選了');
+  await A.click('#btnUnbanAll');
+  await A.waitForFunction(() => !!document.querySelector(`#championGrid > div[onclick="clickChampion('Darius')"]`), null, { timeout: 5000 });
+  await A.fill('#searchInput', '');
+  // 朋友那邊照常顯示全部（灰掉）
+  await waitText(B, '#bluePickSlots', '吉茵珂絲');
+  assert.ok(await isCardDisabled(B, 'Ahri'));
+  assert.ok(!(await B.locator('#champCountText').innerText()).includes('藏起'));
+  // 關掉恢復原狀
+  await A.click('#btnAvailableOnly');
+  assert.ok(await isCardDisabled(A, 'Ahri'));
+  assert.ok((await A.locator('#champCountText').innerText()).startsWith('顯示'));
+});
+
+const setMode = async (page, mode) => {
+  await page.click('button[onclick="openSettingsModal()"]');
+  await page.click(`#matchModeOptions label:has(input[value="${mode}"])`);
+  await page.click('#settingsModal button[onclick="saveSettings()"]');
+};
+const slotCountIs = (page, n) => page.waitForFunction(
+  (n) => document.querySelectorAll('#bluePickSlots > div').length === n && document.querySelectorAll('#redPickSlots > div').length === n,
+  n, { timeout: 10000 });
+
+await test('改成 3v3：雙方都變 3 個 Pick 位，前幾局已選的保留', async () => {
+  await setMode(A, '3v3');
+  await waitText(B, '#displayMatchMode', '3 vs 3');
+  await slotCountIs(B, 3);
+  await slotCountIs(A, 3);
+  await A.click('#gameTabs button:has-text("Game 1")');
+  for (const page of [A, B]) {
+    await waitText(page, '#bluePickSlots', '李星');
+    assert.ok((await page.locator('#bluePickSlots').innerText()).includes('阿璃'));
+    assert.ok((await page.locator('#redPickSlots').innerText()).includes('蓋倫'));
+  }
+  // 重開設定視窗，3v3 是選取狀態
+  await B.click('button[onclick="openSettingsModal()"]');
+  assert.ok(await B.isChecked('#matchModeOptions input[value="3v3"]'));
+  await B.screenshot({ path: path.join(ROOT, 'test-results', 'settings-3v3.png') });
+  await B.click('#settingsModal button[onclick="closeSettingsModal()"]');
+});
+
+await test('朋友改成 2v2：多出來的 Pick 清掉並提示，我選到一半的格子自動取消', async () => {
+  await pick(A, 'blue', 'pick', 2, 'Lux');
+  await waitText(B, '#bluePickSlots', '拉克絲');
+  await A.click('#redPickSlots > div:nth-child(3)');
+  await waitText(A, '#displayActiveSlot', '紅方 Pick 3');
+  await setMode(B, '2v2');
+  await waitText(B, '#toastMsg', '清掉 1 個');
+  await slotCountIs(A, 2);
+  await waitText(A, '#displayActiveSlot', '自由選擇模式');
+  assert.ok(!(await A.locator('#bluePickSlots').innerText()).includes('拉克絲'));
+  assert.ok(!(await isCardDisabled(A, 'Lux')), '被清掉的拉克絲要能再選');
+  await card(A, 'Lux').click();
+  await waitText(A, '#toastMsg', '請先點選');
+});
+
+await test('4v4、再回 5v5：Pick 位跟著變，已選的都還在', async () => {
+  await setMode(A, '4v4');
+  await slotCountIs(B, 4);
+  await waitText(B, '#displayMatchMode', '4 vs 4');
+  await setMode(A, '5v5');
+  await slotCountIs(B, 5);
+  assert.ok((await B.locator('#bluePickSlots').innerText()).includes('阿璃'));
+  assert.ok((await B.locator('#bluePickSlots').innerText()).includes('李星'));
+});
+
+await test('複製全部對戰：每一局都在、沒選任何英雄的局數略過；本局戰報照舊', async () => {
+  await A.evaluate(() => {
+    document.execCommand = () => { window.__copied = [...document.querySelectorAll('body > textarea')].pop()?.value; return true; };
+  });
+  await A.click('#btnCopyAll');
+  await waitText(A, '#toastMsg', '已複製全部對戰（2 局）');
+  const text = await A.evaluate(() => window.__copied);
+  console.log(`       全部對戰：\n${text.split('\n').map(l => '         ' + l).join('\n')}`);
+  assert.ok(text.includes('共 2 局'));
+  assert.ok(text.includes('----- Game 1 -----') && text.includes('----- Game 2 -----'));
+  assert.ok(!text.includes('Game 3'));
+  assert.ok(text.includes(`對戰房：${ROOM}`));
+  assert.ok(text.includes('5v5 團隊 (硬全局)'));
+  assert.ok(text.indexOf('阿璃') < text.indexOf('----- Game 2 -----'), 'Game 1 的阿璃要在 Game 2 前面');
+  assert.ok(text.indexOf('吉茵珂絲') > text.indexOf('----- Game 2 -----'));
+  assert.ok(text.includes('禁用：無, 劫'));
+  await A.click('button[onclick="copyDraftSummary()"]');
+  await waitText(A, '#toastMsg', '已成功複製 BP 戰報');
+  const single = await A.evaluate(() => window.__copied);
+  assert.ok(single.startsWith('=== 英雄聯盟 BP戰報 (Game 1) ==='), single);
+  assert.ok(!single.includes('吉茵珂絲'));
+});
+
+await test('下載全部 .txt：檔名有房號與日期、內容同複製全部', async () => {
+  const [dl] = await Promise.all([A.waitForEvent('download'), A.click('#btnDownloadAll')]);
+  assert.match(dl.suggestedFilename(), new RegExp(`^LoL-BP_${ROOM}_\\d{4}-\\d{2}-\\d{2}\\.txt$`));
+  const content = await readFile(await dl.path(), 'utf8');
+  assert.ok(content.startsWith('﻿'), '開頭要有 BOM');
+  assert.ok(content.includes('\r\n'));
+  assert.ok(content.includes('----- Game 2 -----') && content.includes('吉茵珂絲'));
+  await waitText(A, '#toastMsg', '已下載全部對戰（2 局）');
+});
+
+await test('單機、什麼都還沒選：匯出會提示沒有紀錄', async () => {
+  const D = await openPage('單機');
+  await D.click('#btnCopyAll');
+  await waitText(D, '#toastMsg', '還沒有任何一局');
+  await D.click('#btnDownloadAll');
+  await waitText(D, '#toastMsg', '還沒有任何一局');
+  await D.context().close();
+});
+
 await test('手機寬度（390px）沒有橫向捲動', async () => {
   const M = await openPage('手機', { width: 390, height: 844 });
   const overflow = await M.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
