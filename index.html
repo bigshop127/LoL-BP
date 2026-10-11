@@ -72,6 +72,15 @@
         .disabled-champ:hover {
             transform: none !important;
         }
+        /* 隨機抽到的格子閃一下 */
+        @keyframes random-pop {
+            0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(129, 140, 248, 0.9); }
+            40% { transform: scale(1.04); box-shadow: 0 0 18px 4px rgba(129, 140, 248, 0.7); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(129, 140, 248, 0); }
+        }
+        .random-flash {
+            animation: random-pop 0.9s ease-out;
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col text-slate-100">
@@ -237,6 +246,14 @@
                             </button>
                             <button id="btnUnbanAll" onclick="unbanAllFiltered()" title="把目前篩選出來的英雄全部解除禁用" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 text-xs font-bold transition flex items-center gap-1 whitespace-nowrap">
                                 <i class="fa-solid fa-unlock"></i> 一鍵全開
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <button id="btnRandomOne" onclick="randomForActiveSlot()" title="從目前篩選出來、還能選的英雄裡隨機抽一隻，填進選中的欄位（已禁用、全局BAN、本局已用的不會抽到）" class="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow transition flex items-center gap-1 whitespace-nowrap">
+                                <i class="fa-solid fa-dice"></i> 隨機
+                            </button>
+                            <button id="btnRandomFill" onclick="randomFillCurrentGame()" title="把本局雙方空著的 Pick 位一次隨機補滿（照目前篩選，Ban 位不動）" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 text-xs font-bold transition flex items-center gap-1 whitespace-nowrap">
+                                <i class="fa-solid fa-shuffle"></i> 隨機補滿本局
                             </button>
                         </div>
                     </div>
@@ -1153,7 +1170,7 @@
                     }
 
                     html += `
-                        <div onclick="selectSlot('${side}', 'pick', ${i})" class="group flex items-center gap-3 p-2 rounded-xl border ${borderColor} ${activeClass} cursor-pointer transition relative overflow-hidden">
+                        <div onclick="selectSlot('${side}', 'pick', ${i})" class="group flex items-center gap-3 p-2 rounded-xl border ${borderColor} ${activeClass} ${isRandomFlash(side, 'pick', i) ? 'random-flash' : ''} cursor-pointer transition relative overflow-hidden">
                             <div class="w-12 h-12 rounded-lg bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0">
                                 ${champ ? `<img src="${champ.iconUrl}" class="w-full h-full object-cover">` : `<span class="text-slate-600 font-bold text-xs">P${i+1}</span>`}
                             </div>
@@ -1200,7 +1217,7 @@
                     const activeClass = isActive ? (side === 'blue' ? 'ring-2 ring-lolBlue border-lolBlue' : 'ring-2 ring-lolRed border-lolRed') : 'border-slate-800';
 
                     html += `
-                        <div onclick="selectSlot('${side}', 'ban', ${i})" class="w-10 h-10 rounded-lg bg-slate-950 border ${activeClass} flex items-center justify-center cursor-pointer hover:border-slate-600 transition relative overflow-hidden group">
+                        <div onclick="selectSlot('${side}', 'ban', ${i})" class="w-10 h-10 rounded-lg bg-slate-950 border ${activeClass} ${isRandomFlash(side, 'ban', i) ? 'random-flash' : ''} flex items-center justify-center cursor-pointer hover:border-slate-600 transition relative overflow-hidden group">
                             ${champ ? `
                                 <img src="${champ.iconUrl}" class="w-full h-full object-cover grayscale opacity-75">
                                 <div class="absolute inset-0 bg-rose-950/40 flex items-center justify-center">
@@ -1361,6 +1378,99 @@
             window.roomState.manualDisabledChamps = [...disabled];
             syncAndRender();
             showToast(`已解除 ${removed} 隻英雄的禁用（${describeCurrentFilter()}）`);
+        }
+
+        // ===== 隨機選英雄：照目前篩選抽，鎖住的（已禁用、全局BAN、本局已用）不會抽到 =====
+        // 某一方現在還能抽的英雄；usedSet 是本局已經被 Pick / Ban 的
+        function getRandomCandidates(side, usedSet) {
+            const blocked = getFearlessDisabledChampsForCurrentTeam(side);
+            return getFilteredChampions().filter(c => !blocked.has(c.id) && !usedSet.has(c.id));
+        }
+        const pickRandom = (list) => list[Math.floor(Math.random() * list.length)];
+
+        // 剛抽到的格子（只在自己這台閃一下）
+        let randomFlash = { keys: new Set(), until: 0 };
+        const flashKey = (side, type, index) => `${window.roomState.currentGame}-${side}-${type}-${index}`;
+        function markRandomFlash(slots) {
+            randomFlash = { keys: new Set(slots.map(s => flashKey(s.side, s.type, s.index))), until: Date.now() + 1000 };
+        }
+        const isRandomFlash = (side, type, index) => Date.now() < randomFlash.until && randomFlash.keys.has(flashKey(side, type, index));
+
+        // 隨機填目前選中的那一格，填完跟手動點英雄一樣自動跳下一格（連按就能一路抽下去）
+        function randomForActiveSlot() {
+            if (!window.allChampions.length) {
+                showToast("英雄資料還在載入，請稍等一下", "warning");
+                return;
+            }
+            if (!window.activeSlot) {
+                showToast("請先點選左側或右側欄位 (Pick / Ban)，再按隨機！", "warning");
+                return;
+            }
+            if (!isSlotValid(window.activeSlot)) {
+                window.activeSlot = null;
+                renderAll();
+                showToast("這個欄位已經不存在（模式或 Ban 位數改了），請重新點選欄位", "warning");
+                return;
+            }
+            const slot = { ...window.activeSlot };
+            // 這格原本就有英雄的話它也算本局已用，重抽一定會換一隻
+            const list = getRandomCandidates(slot.side, getCurrentGameUsedChamps());
+            if (!list.length) {
+                showToast(`目前篩選（${describeCurrentFilter()}）已經沒有能抽的英雄了`, "warning");
+                return;
+            }
+            const champ = pickRandom(list);
+            markRandomFlash([slot]);
+            clickChampion(champ.id);
+            const slotText = `${slot.side === 'blue' ? '藍方' : '紅方'} ${slot.type === 'pick' ? 'Pick' : 'Ban'} ${slot.index + 1}`;
+            showToast(`${slotText} 隨機抽到：${champ.name}（從 ${list.length} 隻可用的裡面抽）`);
+        }
+
+        // 把本局雙方空著的 Pick 位一次補滿；已經選好的、Ban 位都不動
+        function randomFillCurrentGame() {
+            if (!window.allChampions.length) {
+                showToast("英雄資料還在載入，請稍等一下", "warning");
+                return;
+            }
+            const currGame = window.roomState.currentGame;
+            const pickCount = getPickCount();
+            if (!window.roomState.games[currGame]) {
+                window.roomState.games[currGame] = { bluePicks: Array(pickCount).fill(null), redPicks: Array(pickCount).fill(null), blueBans: [], redBans: [] };
+            }
+            const gameData = window.roomState.games[currGame];
+            const usedSet = getCurrentGameUsedChamps();
+            const filled = [];
+            let empty = 0;
+
+            ['blue', 'red'].forEach(side => {
+                const picks = side === 'blue' ? gameData.bluePicks : gameData.redPicks;
+                for (let i = 0; i < pickCount; i++) {
+                    if (picks[i]) continue;
+                    empty++;
+                    const list = getRandomCandidates(side, usedSet); // 軟全局時兩邊能用的不一樣，每格各自算
+                    if (!list.length) continue;
+                    const champ = pickRandom(list);
+                    picks[i] = champ.id;
+                    usedSet.add(champ.id);
+                    filled.push({ side, type: 'pick', index: i });
+                }
+            });
+
+            if (!empty) {
+                showToast(`Game ${currGame} 雙方的 Pick 位都已經選好了`);
+                return;
+            }
+            if (!filled.length) {
+                showToast(`目前篩選（${describeCurrentFilter()}）已經沒有能抽的英雄了`, "warning");
+                return;
+            }
+            if (window.activeSlot && window.activeSlot.type === 'pick') window.activeSlot = null;
+            markRandomFlash(filled);
+            syncAndRender();
+            const left = empty - filled.length;
+            showToast(left
+                ? `已隨機補上 ${filled.length} 個 Pick 位，還有 ${left} 格沒有英雄可抽（${describeCurrentFilter()}）`
+                : `已隨機補滿 ${filled.length} 個 Pick 位（${describeCurrentFilter()}）`, left ? "warning" : "info");
         }
 
         function selectSlot(side, type, index) {

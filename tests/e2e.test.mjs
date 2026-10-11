@@ -360,6 +360,82 @@ await test('下載全部 .txt：檔名有房號與日期、內容同複製全部
   await waitText(A, '#toastMsg', '已下載全部對戰（2 局）');
 });
 
+const gameOf = (page, g) => page.evaluate((g) => JSON.parse(JSON.stringify(window.roomState.games[g])), g);
+const champName = (page, id) => page.evaluate((id) => window.championsMap[id].name, id);
+const setRole = (page, label) => page.click(`#roleFilters button:has-text("${label}")`);
+// Game 1 已經被選走／禁掉的：阿璃、李星（藍 Pick）、星朵拉、蓋倫（紅 Pick）、劫（藍 Ban 2）
+const G1_TAKEN = ['Ahri', 'LeeSin', 'Syndra', 'Garen', 'Zed'];
+
+await test('隨機（單格）：沒選欄位會提示；照篩選抽、只剩一隻能抽就一定是它，抽完再按提示沒得抽', async () => {
+  await A.click('#gameTabs button:has-text("Game 1")'); // 換局會取消選取
+  await A.click('#btnRandomOne');
+  await waitText(A, '#toastMsg', '請先點選');
+  // 上單只留達瑞斯能用（蓋倫本局已被選走）
+  await setRole(A, '上單 TOP');
+  await A.click('#btnBanAll');
+  await A.fill('#searchInput', '達瑞斯');
+  await A.click('#btnUnbanAll');
+  await A.fill('#searchInput', '');
+  await A.dispatchEvent('#searchInput', 'input');
+  await A.click('#bluePickSlots > div:nth-child(3)');
+  await A.click('#btnRandomOne');
+  await waitText(A, '#toastMsg', '藍方 Pick 3 隨機抽到：達瑞斯（從 1 隻可用的裡面抽）');
+  assert.equal((await gameOf(A, 1)).bluePicks[2], 'Darius');
+  await waitText(A, '#displayActiveSlot', '藍方 Pick 4');
+  await waitText(B, '#bluePickSlots', '達瑞斯');
+  await A.click('#btnRandomOne');
+  await waitText(A, '#toastMsg', '目前篩選（上單）已經沒有能抽的英雄了');
+  assert.equal((await gameOf(A, 1)).bluePicks[3], null, '沒得抽時不能亂填');
+  await A.click('#btnUnbanAll');
+  await setRole(A, '全部');
+});
+
+await test('隨機（單格）：從全部可用的抽、跳下一格、格子閃一下、朋友同步；重抽一定換一隻', async () => {
+  await A.click('#bluePickSlots > div:nth-child(4)');
+  await A.click('#btnRandomOne');
+  await waitText(A, '#toastMsg', '藍方 Pick 4 隨機抽到');
+  const first = (await gameOf(A, 1)).bluePicks[3];
+  assert.ok(first && ![...G1_TAKEN, 'Darius'].includes(first), `抽到不能用的 ${first}`);
+  assert.ok((await A.locator('#bluePickSlots > div:nth-child(4)').getAttribute('class')).includes('random-flash'));
+  await waitText(A, '#displayActiveSlot', '藍方 Pick 5');
+  await waitText(B, '#bluePickSlots', await champName(A, first));
+  // 點回同一格再抽：原本那隻算本局已用，一定換成別隻
+  await A.click('#bluePickSlots > div:nth-child(4)');
+  await A.click('#btnRandomOne');
+  await A.waitForFunction((old) => window.roomState.games[1].bluePicks[3] !== old, first, { timeout: 5000 });
+  const second = (await gameOf(A, 1)).bluePicks[3];
+  assert.ok(second && ![...G1_TAKEN, 'Darius', first].includes(second), `重抽抽到 ${second}`);
+  await waitText(B, '#bluePickSlots', await champName(A, second));
+});
+
+await test('隨機補滿本局：只補空的 Pick、Ban 不動、不重複，全局BAN／手動禁用的都不會出現，朋友同步', async () => {
+  await A.click('#gameTabs button:has-text("Game 2")');
+  await setRole(A, '下路 ADC');
+  await A.click('#btnBanAll'); // 下路全部手動禁用（Game 2 已選的吉茵珂絲也是下路，要原地保留）
+  await setRole(A, '全部');
+  const g1 = await gameOf(A, 1);
+  const manual = await A.evaluate(() => [...window.roomState.manualDisabledChamps]);
+  const blocked = new Set([...manual, ...g1.bluePicks, ...g1.redPicks, ...g1.blueBans, ...g1.redBans].filter(Boolean));
+  await A.click('#btnRandomFill');
+  await waitText(A, '#toastMsg', '已隨機補滿 9 個 Pick 位（全部英雄）');
+  const g2 = await gameOf(A, 2);
+  assert.equal(g2.bluePicks[0], 'Jinx', '已經選好的不能動');
+  const picks = [...g2.bluePicks, ...g2.redPicks];
+  assert.equal(picks.filter(Boolean).length, 10);
+  assert.equal(new Set(picks).size, 10, '同一局不能重複');
+  picks.slice(1).forEach(id => assert.ok(!blocked.has(id), `抽到鎖住的 ${id}`));
+  assert.ok(![...g2.blueBans, ...g2.redBans].some(Boolean), 'Ban 位不能動');
+  assert.ok((await A.locator('#redPickSlots > div:nth-child(5)').getAttribute('class')).includes('random-flash'));
+  await B.waitForFunction((want) => JSON.stringify([...window.roomState.games[2].bluePicks, ...window.roomState.games[2].redPicks]) === want,
+    JSON.stringify(picks), { timeout: 10000 });
+  await A.click('#btnRandomFill');
+  await waitText(A, '#toastMsg', 'Game 2 雙方的 Pick 位都已經選好了');
+  await setRole(A, '下路 ADC');
+  await A.click('#btnUnbanAll');
+  await setRole(A, '全部');
+  await A.screenshot({ path: path.join(ROOT, 'test-results', 'random-fill.png') });
+});
+
 await test('單機、什麼都還沒選：匯出會提示沒有紀錄', async () => {
   const D = await openPage('單機');
   await D.click('#btnCopyAll');
