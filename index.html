@@ -140,6 +140,7 @@
                 <i class="fa-solid fa-chart-line text-purple-400 text-sm"></i>
                 <span class="font-bold text-amber-300" id="opggStatusText">OP.GG 勝率數據分析連線中：</span>
                 <span id="creatorMatchupSummary">點選對決英雄，即可即時預覽對位與勝率分析數據。</span>
+                <span class="text-purple-300/80">｜剋星：<span class="text-amber-300">黃框＝上路劣勢對位表</span>、<span class="text-purple-300">紫框＝OP.GG</span>、灰色＝對面已經不能選</span>
             </div>
             <div class="flex items-center gap-2 shrink-0">
                 <button id="opggRetryBtn" onclick="loadOpggMeta(true)" class="hidden bg-purple-800/70 hover:bg-purple-700 text-purple-100 border border-purple-400/40 px-2 py-0.5 rounded text-[10px] font-bold transition">
@@ -536,6 +537,7 @@
         // Global State
         window.allChampions = [];
         window.championsMap = {};
+        window.championsByNumId = {}; // 英雄數字 id → 英雄（OP.GG 回傳的是數字 id）
         window.filterRole = 'ALL';
         window.filterRange = 'ALL';
         window.showAvailableOnly = false; // 中間英雄池只顯示還能選的（只影響自己這台）
@@ -651,6 +653,7 @@
 
                     parsedList.push(champObj);
                     window.championsMap[c.id] = champObj;
+                    window.championsByNumId[c.key] = champObj;
                 }
 
                 parsedList.sort((a, b) => a.name.localeCompare(b.name, 'zh-TW'));
@@ -922,7 +925,7 @@
         const OPGG_PROXY = 'https://lol-bp-opgg.bigshop127.workers.dev';
         const OPGG_POS = { TOP: 'top', JUG: 'jungle', MID: 'mid', ADC: 'adc', SUP: 'support' };
         const OPGG_POS_LABEL = { top: '上路', jungle: '打野', mid: '中路', adc: '下路', support: '輔助' };
-        window.opgg = { status: 'idle', meta: null, error: '', fetchedAt: null, matchups: {} };
+        window.opgg = { status: 'idle', meta: null, error: '', fetchedAt: null, matchups: {}, counters: {} };
 
         function opggProxyBase() {
             // 本機測試可用 ?opgg=http://localhost:8787 指到本機的 Worker
@@ -936,7 +939,7 @@
         async function loadOpggMeta(force) {
             if (!window.isCreatorMode) return;
             if (!force && (window.opgg.status === 'loading' || window.opgg.status === 'ready')) return;
-            if (force) window.opgg.matchups = {};
+            if (force) { window.opgg.matchups = {}; window.opgg.counters = {}; }
             window.opgg.status = 'loading';
             renderCreatorUI();
             try {
@@ -998,6 +1001,139 @@
 
         const opggChampUrl = (champ, pos) => `https://op.gg/zh-tw/lol/champions/${champ.id.toLowerCase()}/build${pos ? '/' + pos : ''}`;
         const opggMatchupUrl = (champ, opp, pos) => `https://op.gg/zh-tw/lol/champions/${champ.id.toLowerCase()}/counters${pos ? '/' + pos : ''}?target_champion=${opp.id.toLowerCase()}`;
+
+        // ===== 剋星（只有創造者模式才顯示，只看不能點）=====
+        // 上路劣勢對位表：使用者提供的截圖（簡體），照表上的順序；用 Data Dragon zh_CN 對照成英雄代號
+        const TOP_COUNTERS = {
+            Vayne: ['Teemo', 'Annie'],
+            Aatrox: ['Kled', 'Ambessa', 'Irelia', 'MonkeyKing'],
+            Rengar: ['Gragas', 'Darius', 'Warwick', 'Maokai'],
+            Kled: ['Garen', 'Riven', 'Fiora'],
+            Volibear: ['KSante', 'Rumble', 'Kennen', 'Quinn', 'Poppy', 'Illaoi', 'Jax', 'Gangplank'],
+            Pantheon: ['KSante', 'Malphite', 'Quinn'],
+            Smolder: ['Viktor', 'Diana', 'Yasuo', 'Zed', 'Irelia'],
+            Heimerdinger: ['Ezreal'],
+            Irelia: ['Malphite', 'Volibear', 'Garen', 'Renekton', 'Poppy', 'Sett', 'MonkeyKing'],
+            Garen: ['Mordekaiser', 'Kennen', 'Jayce', 'Kayle', 'Camille', 'Darius', 'Gnar'],
+            Quinn: ['Irelia', 'Kennen', 'Malphite'],
+            Riven: ['Renekton', 'Malphite', 'Poppy', 'Quinn'],
+            Yone: ['Sylas', 'Akali', 'Diana', 'Leblanc'],
+            Illaoi: ['Mordekaiser', 'Yorick', 'Tryndamere'],
+            Gangplank: ['Yorick', 'Riven', 'Rumble', 'Aatrox', 'MonkeyKing'],
+            TahmKench: ['Shen', 'Gwen', 'Lillia', 'Mordekaiser'],
+            Renekton: ['Quinn', 'Volibear'],
+            Sylas: ['LeeSin', 'TahmKench', 'Heimerdinger', 'Renekton', 'Ryze', 'Cassiopeia'],
+            Rumble: ['Aatrox', 'Riven', 'Mordekaiser'],
+            Yasuo: ['Pantheon', 'Renekton', 'Sett', 'Annie'],
+            Trundle: ['Teemo', 'Jax'],
+            Gragas: ['Aatrox', 'KSante', 'Gangplank'],
+            Kennen: ['Jayce', 'Irelia'],
+            Olaf: ['Tryndamere', 'Trundle', 'Vladimir', 'Ambessa', 'Illaoi', 'Riven'],
+            Singed: ['LeeSin', 'Teemo', 'Chogath', 'Jayce', 'Ambessa'],
+            Gwen: ['Jax', 'Warwick', 'Trundle', 'Yasuo'],
+            Akali: ['LeeSin', 'Galio', 'Lissandra'],
+            Tryndamere: ['Malphite', 'Kled'],
+            Gnar: ['Sylas', 'MonkeyKing'],
+            Cassiopeia: ['Naafiri', 'MonkeyKing'],
+            Yorick: ['MonkeyKing', 'Chogath', 'Trundle'],
+            Shen: ['Darius', 'Gangplank', 'Aatrox', 'Fiora', 'Gwen', 'Kennen', 'Rumble', 'Mordekaiser', 'Vladimir'],
+            KSante: ['Poppy', 'Kennen', 'Gnar'],
+            Maokai: ['Gwen', 'Mordekaiser', 'Gangplank'],
+            Darius: ['Jax', 'Jayce', 'Kennen', 'MonkeyKing', 'Mordekaiser', 'Rumble', 'Yorick'],
+            Camille: ['Rumble', 'Warwick', 'Jax', 'Kennen', 'Darius', 'Mordekaiser', 'Renekton', 'Volibear'],
+            MonkeyKing: ['LeeSin', 'Chogath', 'Renekton', 'Volibear'],
+            Malphite: ['Volibear', 'Sylas', 'Nasus', 'Rumble', 'Chogath', 'DrMundo'],
+            Nasus: ['Volibear', 'Illaoi', 'TahmKench', 'Rumble', 'KSante', 'Gangplank'],
+            Ornn: ['Mordekaiser', 'Sylas', 'Fiora', 'Trundle', 'Gwen', 'Rumble'],
+            Poppy: ['Illaoi', 'Mordekaiser'],
+            Aurora: ['Irelia', 'Akali', 'MonkeyKing'],
+            Mordekaiser: ['Akali', 'Olaf', 'Warwick', 'KSante', 'Ambessa', 'Fiora', 'Jayce'],
+            Ambessa: ['Renekton', 'Irelia', 'Camille', 'Vladimir', 'Jayce'],
+            Sett: ['KSante', 'Mordekaiser', 'Volibear', 'Malphite', 'Illaoi', 'Warwick', 'Gangplank'],
+            Sion: ['Aatrox', 'Urgot', 'Tristana', 'Yasuo', 'Yone', 'Fiora', 'Trundle', 'Rumble'],
+            Jayce: ['Irelia', 'Gragas'],
+            Fiora: ['Urgot', 'Ambessa', 'Renekton', 'Heimerdinger', 'Warwick', 'Poppy'],
+            Urgot: ['Volibear', 'Mordekaiser', 'Gangplank'],
+            Jax: ['Gragas', 'Pantheon'],
+            Vladimir: ['Kled', 'Irelia', 'Akali'],
+            Chogath: ['Fiora', 'Olaf', 'Irelia', 'Rumble'],
+            Teemo: ['Cassiopeia', 'Nasus', 'Chogath'],
+            Kayle: ['Jayce', 'Irelia', 'Chogath'],
+            DrMundo: ['Aatrox', 'Nasus', 'Rumble', 'Camille', 'Gwen', 'Fiora', 'Yorick'],
+            Warwick: ['Heimerdinger', 'Olaf', 'KSante', 'Jayce', 'Illaoi'],
+        };
+        const COUNTER_COUNT = 5;
+
+        // 克制某英雄的 5 隻：先照表上順序，不夠的用 OP.GG 同一路「對他勝率最高」的補（場數太少的排後面）
+        // 表上有的英雄用上路數據，表上沒有的用他最常走的那一路
+        function getCounterPicks(champ) {
+            const tableIds = TOP_COUNTERS[champ.id] || [];
+            const items = tableIds.slice(0, COUNTER_COUNT)
+                .map(id => ({ champ: window.championsMap[id], source: 'table' }))
+                .filter(x => x.champ);
+            const need = COUNTER_COUNT - items.length;
+            if (need <= 0) return { items, status: 'ready' };
+
+            const pos = tableIds.length ? 'top' : (getOpggStats(champ) || {}).pos;
+            if (!pos) {
+                const status = { ready: 'nodata', error: 'error' }[window.opgg.status] || 'loading';
+                return { items, status };
+            }
+            const key = `${champ.numId}:${pos}`;
+            if (!window.opgg.counters[key]) fetchOpggCounters(key, champ, pos);
+            const o = window.opgg.counters[key];
+            if (o.status !== 'ready') return { items, status: o.status, pos };
+
+            const taken = new Set([champ.id, ...items.map(x => x.champ.id)]);
+            const reliability = (play) => (play >= 50 ? 0 : play >= 20 ? 1 : 2);
+            const fill = o.list
+                .map(r => ({ champ: window.championsByNumId[r.id], play: r.play, wr: r.play > 0 ? 1 - r.win / r.play : 0 }))
+                .filter(x => x.champ && x.play > 0 && !taken.has(x.champ.id))
+                .sort((a, b) => reliability(a.play) - reliability(b.play) || b.wr - a.wr)
+                .slice(0, need)
+                .map(x => ({ ...x, source: 'opgg' }));
+            return { items: items.concat(fill), status: 'ready', pos };
+        }
+
+        async function fetchOpggCounters(key, champ, pos) {
+            window.opgg.counters[key] = { status: 'loading' };
+            try {
+                const res = await fetch(`${opggProxyBase()}/counters?champ=${encodeURIComponent(champ.numId)}&pos=${pos}`);
+                const j = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+                window.opgg.counters[key] = { status: 'ready', list: j.counters || [] };
+            } catch (e) {
+                console.error('OP.GG 剋星名單讀取失敗：', e);
+                window.opgg.counters[key] = { status: 'error', error: String((e && e.message) || e) };
+            }
+            if (window.isCreatorMode) renderPickSlots();
+        }
+
+        // Pick 格裡的剋星列；對面（要拿剋星的那一方）已經不能選的照列但變灰
+        function renderCounterRow(champ, side) {
+            const { items, status, pos } = getCounterPicks(champ);
+            const manual = new Set(window.roomState.manualDisabledChamps || []);
+            const fearless = getFearlessDisabledChampsForCurrentTeam(side === 'blue' ? 'red' : 'blue', false);
+            const used = getCurrentGameUsedChamps();
+
+            const icons = items.map(x => {
+                const c = x.champ;
+                const why = used.has(c.id) ? '本局已選或已 Ban' : manual.has(c.id) ? '已手動禁用' : fearless.has(c.id) ? '前幾局用過或 Ban 過' : '';
+                const from = x.source === 'table'
+                    ? `上路劣勢對位表：克制 ${champ.name}`
+                    : `OP.GG ${OPGG_POS_LABEL[pos]}：對 ${champ.name} 勝率 ${pct(x.wr)}%（${x.play} 場）`;
+                const title = `${c.name}｜${from}${why ? `｜不能選：${why}` : ''}`;
+                const border = x.source === 'table' ? 'border-amber-400/80' : 'border-purple-400/80';
+                return `<img src="${c.iconUrl}" data-counter="${c.id}" data-source="${x.source}"${why ? ' data-blocked="1"' : ''} title="${escapeHtml(title)}" alt="${escapeHtml(c.name)}" class="w-6 h-6 rounded border ${border} ${why ? 'grayscale opacity-40' : ''}">`;
+            });
+            const missing = COUNTER_COUNT - items.length;
+            if (missing > 0 && status === 'loading') {
+                icons.push(...Array(missing).fill('<span class="w-6 h-6 rounded bg-slate-800 animate-pulse" title="OP.GG 讀取中…"></span>'));
+            } else if (missing > 0 && status === 'error') {
+                icons.push('<span class="text-[10px] text-rose-400" title="OP.GG 讀取失敗（可以按上方的「重新連線」再試）">OP.GG ×</span>');
+            }
+            return `<div class="counter-row flex items-center gap-1 mt-1.5 pl-[60px]"><span class="text-[10px] text-slate-500 mr-0.5 shrink-0">剋星</span>${icons.join('')}</div>`;
+        }
 
         function renderAll() {
             renderCreatorUI();
@@ -1170,25 +1306,29 @@
                     }
 
                     html += `
-                        <div onclick="selectSlot('${side}', 'pick', ${i})" class="group flex items-center gap-3 p-2 rounded-xl border ${borderColor} ${activeClass} ${isRandomFlash(side, 'pick', i) ? 'random-flash' : ''} cursor-pointer transition relative overflow-hidden">
-                            <div class="w-12 h-12 rounded-lg bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0">
-                                ${champ ? `<img src="${champ.iconUrl}" class="w-full h-full object-cover">` : `<span class="text-slate-600 font-bold text-xs">P${i+1}</span>`}
-                            </div>
-
-                            <div class="flex-1 min-w-0">
-                                <div class="text-xs text-slate-400 font-medium">${side === 'blue' ? '藍方' : '紅方'} Pick ${i+1}</div>
-                                <div class="font-bold text-sm truncate ${champ ? 'text-slate-100' : 'text-slate-600'}">
-                                    ${champ ? champ.name : '未選擇'}
+                        <div onclick="selectSlot('${side}', 'pick', ${i})" class="group p-2 rounded-xl border ${borderColor} ${activeClass} ${isRandomFlash(side, 'pick', i) ? 'random-flash' : ''} cursor-pointer transition relative overflow-hidden">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 rounded-lg bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0">
+                                    ${champ ? `<img src="${champ.iconUrl}" class="w-full h-full object-cover">` : `<span class="text-slate-600 font-bold text-xs">P${i+1}</span>`}
                                 </div>
+
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-xs text-slate-400 font-medium">${side === 'blue' ? '藍方' : '紅方'} Pick ${i+1}</div>
+                                    <div class="font-bold text-sm truncate ${champ ? 'text-slate-100' : 'text-slate-600'}">
+                                        ${champ ? champ.name : '未選擇'}
+                                    </div>
+                                </div>
+
+                                ${creatorPickBadge}
+
+                                ${champ ? `
+                                    <button onclick="event.stopPropagation(); clearSlot('${side}', 'pick',${i});" class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-400 p-1.5 transition">
+                                        <i class="fa-solid fa-xmark"></i>
+                                    </button>
+                                ` : ''}
                             </div>
 
-                            ${creatorPickBadge}
-
-                            ${champ ? `
-                                <button onclick="event.stopPropagation(); clearSlot('${side}', 'pick',${i});" class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-400 p-1.5 transition">
-                                    <i class="fa-solid fa-xmark"></i>
-                                </button>
-                            ` : ''}
+                            ${window.isCreatorMode && champ ? renderCounterRow(champ, side) : ''}
                         </div>
                     `;
                 }

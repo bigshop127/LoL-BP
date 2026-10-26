@@ -2,7 +2,7 @@
 // 用法：node tests/worker.test.mjs [--live]
 import assert from 'node:assert/strict';
 import { parseOpggText } from '../worker/src/opgg-format.js';
-import worker, { getMeta, getMatchup, toOpggName } from '../worker/src/index.js';
+import worker, { getMeta, getMatchup, getCounters, toOpggName } from '../worker/src/index.js';
 
 let passed = 0;
 const test = async (name, fn) => {
@@ -61,6 +61,11 @@ await test('matchup 參數不合法 → 400', async () => {
   assert.equal((await call('/matchup?champ=Ahri&pos=mid&vs=134')).status, 400);
   assert.equal((await call('/matchup?champ=103&pos=mid')).status, 400);
 });
+await test('counters 參數不合法 → 400', async () => {
+  assert.equal((await call('/counters?champ=122&pos=xx')).status, 400);
+  assert.equal((await call('/counters?champ=Darius&pos=top')).status, 400);
+  assert.equal((await call('/counters?pos=top')).status, 400);
+});
 await test('未知路徑 → 404', async () => {
   assert.equal((await call('/nope')).status, 404);
 });
@@ -100,6 +105,21 @@ if (process.argv.includes('--live')) {
     assert.equal(r.status, 200);
     const j = await r.json();
     assert.ok(j.counters.some(c => c.id === 134));
+  });
+  await test('counters：達瑞斯上路有完整對位名單（剋星用）', async () => {
+    const r = await getCounters(122, 'top');
+    assert.equal(r.champ, 122);
+    assert.ok(r.counters.length >= 20, `counters ${r.counters.length}`);
+    assert.ok(r.counters.every(c => Number.isInteger(c.id) && c.play >= c.win), JSON.stringify(r.counters.slice(0, 3)));
+    const worst = [...r.counters].filter(c => c.play >= 50).sort((a, b) => a.win / a.play - b.win / b.play).slice(0, 5);
+    console.log(`       對位數 ${r.counters.length}，勝率最低：${worst.map(c => `${c.id} ${(c.win / c.play * 100).toFixed(1)}%`).join('、')}`);
+  });
+  await test('Worker 完整走一次 /counters', async () => {
+    const r = await call('/counters?champ=103&pos=mid');
+    assert.equal(r.status, 200);
+    const j = await r.json();
+    assert.equal(j.pos, 'mid');
+    assert.ok(j.counters.length >= 20);
   });
   await test('Worker 完整走一次 /meta（含 CORS）', async () => {
     const r = await call('/meta');

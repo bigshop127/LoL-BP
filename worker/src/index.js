@@ -6,6 +6,7 @@
 //
 //   GET /meta                                 各路英雄勝率／登場率／禁用率
 //   GET /matchup?champ=103&pos=mid&vs=134     該英雄在該路對上各英雄的戰績（用英雄數字 id）
+//   GET /counters?champ=122&pos=top           同上但不指定對手（創造者畫面的「剋星」用）
 
 import { parseOpggText } from './opgg-format.js';
 
@@ -108,6 +109,12 @@ export async function getMatchup(champ, pos, vs, champList) {
   };
 }
 
+// 某英雄在某路對上各英雄的戰績。對位工具一定要給對手，但這份名單跟對手無關；給自己（鏡像）回應最小
+export async function getCounters(champ, pos, champList) {
+  const r = await getMatchup(champ, pos, champ, champList);
+  return { source: r.source, fetchedAt: r.fetchedAt, champ, pos, counters: r.counters };
+}
+
 function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': origin,
@@ -165,17 +172,19 @@ export default {
         const body = await cached('meta', META_TTL, getMeta, ctx);
         return new Response(body, { headers: { 'Content-Type': 'application/json; charset=utf-8', ...cors } });
       }
-      if (url.pathname === '/matchup') {
+      if (url.pathname === '/matchup' || url.pathname === '/counters') {
         const idOf = (s) => (/^\d{1,5}$/.test(s || '') ? Number(s) : null);
+        const isCounters = url.pathname === '/counters';
         const champ = idOf(url.searchParams.get('champ'));
-        const vs = idOf(url.searchParams.get('vs'));
+        const vs = isCounters ? champ : idOf(url.searchParams.get('vs'));
         const pos = (url.searchParams.get('pos') || '').toLowerCase();
         if (champ === null || vs === null || !POSITIONS.includes(pos)) {
           return jsonResponse({ error: 'bad params' }, 400, cors);
         }
         const champList = JSON.parse(await cached('champions', META_TTL, getChampionList, ctx));
-        const key = `matchup:${champ}:${pos}:${vs}`;
-        const body = await cached(key, MATCHUP_TTL, () => getMatchup(champ, pos, vs, champList), ctx);
+        const body = isCounters
+          ? await cached(`counters:${champ}:${pos}`, MATCHUP_TTL, () => getCounters(champ, pos, champList), ctx)
+          : await cached(`matchup:${champ}:${pos}:${vs}`, MATCHUP_TTL, () => getMatchup(champ, pos, vs, champList), ctx);
         return new Response(body, { headers: { 'Content-Type': 'application/json; charset=utf-8', ...cors } });
       }
       return jsonResponse({ error: 'not found' }, 404, cors);

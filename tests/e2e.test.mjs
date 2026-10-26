@@ -436,6 +436,94 @@ await test('隨機補滿本局：只補空的 Pick、Ban 不動、不重複，�
   await A.screenshot({ path: path.join(ROOT, 'test-results', 'random-fill.png') });
 });
 
+await test('剋星（創造者限定）：選了英雄自動列 5 隻；表上的照順序、不夠用 OP.GG 補、對面不能選的照列變灰、只看不能點', async () => {
+  const E = await openPage('剋星');
+  const counterUrls = [];
+  E.on('request', r => { if (r.url().includes('/counters?')) counterUrls.push(r.url()); });
+  await join(E, `${ROOM}-c`, '**x');
+  await waitText(E, '#opggStatusText', '已連線', 60000);
+  const rowInfo = (side, i) => E.locator(`#${side}PickSlots > div:nth-child(${i + 1}) [data-counter]`).evaluateAll(els =>
+    els.map(e => ({ id: e.dataset.counter, source: e.dataset.source, blocked: !!e.dataset.blocked, title: e.title })));
+  const waitFive = (side, i) => E.waitForFunction(([s, i]) =>
+    document.querySelectorAll(`#${s}PickSlots > div:nth-child(${i + 1}) [data-counter]`).length === 5, [side, i], { timeout: 60000 });
+  const DARIUS_TABLE = ['Jax', 'Jayce', 'Kennen', 'MonkeyKing', 'Mordekaiser'];
+
+  // 達瑞斯：表上 7 隻 → 只取前 5 隻、照表上順序
+  await pick(E, 'blue', 'pick', 0, 'Darius');
+  await waitFive('blue', 0);
+  let darius = await rowInfo('blue', 0);
+  assert.deepEqual(darius.map(x => x.id), DARIUS_TABLE);
+  assert.ok(darius.every(x => x.source === 'table' && !x.blocked), JSON.stringify(darius));
+  assert.equal(darius[0].title, '賈克斯｜上路劣勢對位表：克制 達瑞斯');
+
+  // 漢默丁格：表上只有伊澤瑞爾 → 第 1 隻是他，後 4 隻用 OP.GG 上路補，不重複、不含自己
+  await pick(E, 'red', 'pick', 0, 'Heimerdinger');
+  await waitFive('red', 0);
+  const heimer = await rowInfo('red', 0);
+  assert.deepEqual([heimer[0].id, heimer[0].source], ['Ezreal', 'table']);
+  heimer.slice(1).forEach(x => assert.match(x.title, /｜OP\.GG 上路：對 漢默丁格 勝率 [\d.]+%（\d+ 場）$/));
+  assert.ok(heimer.slice(1).every(x => x.source === 'opgg'));
+  assert.equal(new Set(heimer.map(x => x.id)).size, 5);
+  assert.ok(!heimer.some(x => x.id === 'Heimerdinger'));
+
+  // 阿璃：表上沒有 → 5 隻都是 OP.GG 中路
+  await pick(E, 'blue', 'pick', 1, 'Ahri');
+  await waitFive('blue', 1);
+  const ahri = await rowInfo('blue', 1);
+  assert.ok(ahri.every(x => x.source === 'opgg' && x.title.includes('OP.GG 中路：對 阿璃')), JSON.stringify(ahri));
+  console.log(`       阿璃剋星：${ahri.map(x => x.title.replace(/｜OP\.GG 中路：對 阿璃 /, ' ')).join('、')}`);
+
+  // 本局 Ban 掉賈克斯、紅方選走凱能、手動禁用杰西 → 達瑞斯那列三隻變灰，順序不變
+  await pick(E, 'blue', 'ban', 0, 'Jax');
+  await pick(E, 'red', 'pick', 1, 'Kennen');
+  await E.fill('#searchInput', '杰西');
+  await E.click('#btnBanAll');
+  await E.fill('#searchInput', '');
+  await E.dispatchEvent('#searchInput', 'input');
+  await E.waitForFunction(() => document.querySelectorAll('#bluePickSlots > div:nth-child(1) [data-blocked]').length === 3, null, { timeout: 5000 });
+  darius = await rowInfo('blue', 0);
+  assert.deepEqual(darius.map(x => x.id), DARIUS_TABLE);
+  assert.deepEqual(darius.map(x => x.blocked), [true, true, true, false, false]);
+  assert.match(darius[0].title, /｜不能選：本局已選或已 Ban$/);
+  assert.match(darius[1].title, /｜不能選：已手動禁用$/);
+
+  // Game 2（硬全局）：蓋倫的剋星凱能在 Game 1 用過 → 灰掉
+  await E.click('#gameTabs button:has-text("Game 2")');
+  await pick(E, 'blue', 'pick', 0, 'Garen');
+  await waitFive('blue', 0);
+  const garen = await rowInfo('blue', 0);
+  assert.deepEqual(garen.map(x => x.id), ['Mordekaiser', 'Kennen', 'Jayce', 'Kayle', 'Camille']);
+  assert.deepEqual(garen.map(x => x.blocked), [false, true, true, false, false]);
+  assert.match(garen[1].title, /｜不能選：前幾局用過或 Ban 過$/);
+
+  // 點剋星頭像不會選角
+  const before = await E.evaluate(() => JSON.stringify(window.roomState.games));
+  await E.locator('#bluePickSlots > div:nth-child(1) [data-counter]').first().click();
+  await E.waitForTimeout(500);
+  assert.equal(await E.evaluate(() => JSON.stringify(window.roomState.games)), before);
+
+  // 同一隻英雄只跟 OP.GG 要一次名單（漢默丁格、凱能看上路，阿璃看中路；表上夠 5 隻的達瑞斯、蓋倫不用要）
+  assert.deepEqual(counterUrls.map(u => new URL(u).search).sort(),
+    ['?champ=103&pos=mid', '?champ=74&pos=top', '?champ=85&pos=top'], counterUrls.join(' '));
+
+  await E.click('#btnUnbanAll'); // 清掉手動禁用（不影響別的房間，保險起見）
+  await E.setViewportSize({ width: 390, height: 844 });
+  const overflow = await E.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  assert.ok(overflow <= 0, `手機寬度超出 ${overflow}px`);
+  await E.click('#gameTabs button:has-text("Game 1")');
+  await E.locator('#bluePickSlots').screenshot({ path: path.join(ROOT, 'test-results', 'counters-mobile.png') });
+  await E.setViewportSize({ width: 1500, height: 1000 });
+  await E.locator('#bluePickSlots').screenshot({ path: path.join(ROOT, 'test-results', 'counters.png') });
+  await E.context().close();
+});
+
+await test('剋星只有創造者看得到：朋友畫面沒有剋星列，整個過程也沒發過 OP.GG 請求', async () => {
+  assert.ok(await A.locator('.counter-row').count() > 0, '創造者應該有剋星列');
+  assert.equal(await B.locator('.counter-row').count(), 0);
+  assert.equal(await B.locator('[data-counter]').count(), 0);
+  assert.equal(B.opggRequests, 0);
+});
+
 await test('單機、什麼都還沒選：匯出會提示沒有紀錄', async () => {
   const D = await openPage('單機');
   await D.click('#btnCopyAll');
