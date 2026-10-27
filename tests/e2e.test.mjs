@@ -436,91 +436,172 @@ await test('隨機補滿本局：只補空的 Pick、Ban 不動、不重複，�
   await A.screenshot({ path: path.join(ROOT, 'test-results', 'random-fill.png') });
 });
 
-await test('剋星（創造者限定）：選了英雄自動列 5 隻；表上的照順序、不夠用 OP.GG 補、對面不能選的照列變灰、只看不能點', async () => {
+await test('剋星（創造者限定）：選了英雄自動列 5 隻、依克制程度排；下方分析有金牌／翡翠／鑽石；對面不能選的照列變灰、只看不能點', async () => {
   const E = await openPage('剋星');
-  const counterUrls = [];
-  E.on('request', r => { if (r.url().includes('/counters?')) counterUrls.push(r.url()); });
+  const urls = { counters: [], tiers: [] };
+  E.on('request', r => { const m = /\/(counters|tiers)\?/.exec(r.url()); if (m) urls[m[1]].push(new URL(r.url()).search); });
   await join(E, `${ROOM}-c`, '**x');
   await waitText(E, '#opggStatusText', '已連線', 60000);
-  const rowInfo = (side, i) => E.locator(`#${side}PickSlots > div:nth-child(${i + 1}) [data-counter]`).evaluateAll(els =>
-    els.map(e => ({ id: e.dataset.counter, source: e.dataset.source, blocked: !!e.dataset.blocked, title: e.title })));
-  const waitFive = (side, i) => E.waitForFunction(([s, i]) =>
+
+  const rowIds = (side, i) => E.locator(`#${side}PickSlots > div:nth-child(${i + 1}) [data-counter]`).evaluateAll(els => els.map(e => e.dataset.counter));
+  const waitRow = (side, i) => E.waitForFunction(([s, i]) =>
     document.querySelectorAll(`#${s}PickSlots > div:nth-child(${i + 1}) [data-counter]`).length === 5, [side, i], { timeout: 60000 });
+  // 分析區：等名單和三個分段都讀完
+  const waitPanel = (side, champ) => E.waitForFunction(([s, c]) => {
+    const p = document.querySelector(`#${s}CounterPanel .counter-panel`);
+    return p && p.dataset.champ === c && p.querySelectorAll('li[data-counter]').length === 5
+      && !p.querySelector('.animate-pulse') && !/讀取中/.test(p.innerText);
+  }, [side, champ], { timeout: 60000 });
+  const panel = (side) => E.evaluate((s) => {
+    const p = document.querySelector(`#${s}CounterPanel .counter-panel`);
+    return {
+      champ: p.dataset.champ,
+      text: p.innerText,
+      list: [...p.querySelectorAll('li[data-counter]')].map(e => ({
+        id: e.dataset.counter, source: e.dataset.source, blocked: !!e.dataset.blocked,
+        wr: e.dataset.wr === '' ? null : Number(e.dataset.wr), play: Number(e.dataset.play), text: e.innerText,
+      })),
+      tiers: Object.fromEntries([...p.querySelectorAll('[data-tier]')].map(t => [t.dataset.tier,
+        [...t.querySelectorAll('[data-tier-counter]')].map(e => ({ id: e.dataset.tierCounter, blocked: !!e.dataset.blocked, title: e.title }))])),
+    };
+  }, side);
+  const rel = (play) => (play >= 50 ? 0 : play >= 20 ? 1 : 2);
+  const assertSorted = (list) => list.slice(1).forEach((b, i) => {
+    const a = list[i];
+    assert.ok(rel(a.play) < rel(b.play) || (rel(a.play) === rel(b.play) && (a.wr ?? -1) >= (b.wr ?? -1)), JSON.stringify(list.map(x => [x.id, x.wr, x.play])));
+  });
+  // 勝率要跟 Worker 回的原始數據對得上（他對這隻英雄的勝率＝1－這隻英雄贏的場數／總場數）
+  const assertMatchesWorker = async (champ, pos, p) => {
+    const raw = await E.evaluate(([c, pos]) => {
+      const champ = window.championsMap[c];
+      const key = `${champ.numId}:${pos}`;
+      return { counters: window.opgg.counters[key].data.counters, tiers: window.opgg.tiers[key].data.tiers,
+        numOf: Object.fromEntries(Object.values(window.championsMap).map(x => [x.id, String(x.numId)])) };
+    }, [champ, pos]);
+    for (const x of p.list.filter(x => x.play > 0)) {
+      const r = raw.counters.find(r => String(r.id) === raw.numOf[x.id]);
+      assert.equal(x.play, r.play, x.id);
+      assert.ok(Math.abs(x.wr - (1 - r.win / r.play)) < 1e-9, x.id);
+    }
+    for (const t of ['gold', 'emerald', 'diamond']) {
+      const want = raw.tiers[t].counters.filter(r => r.play > 0)
+        .sort((a, b) => a.win / a.play - b.win / b.play).map(r => String(r.id));
+      assert.deepEqual(p.tiers[t].map(x => raw.numOf[x.id]), want, `${champ} ${t}`);
+      assert.ok(p.tiers[t].length >= 1 && p.tiers[t].length <= 3, `${t} ${p.tiers[t].length}`);
+    }
+  };
   const DARIUS_TABLE = ['Jax', 'Jayce', 'Kennen', 'MonkeyKing', 'Mordekaiser'];
 
-  // 達瑞斯：表上 7 隻 → 只取前 5 隻、照表上順序
+  // 達瑞斯：表上 7 隻 → 取前 5 隻，依克制程度排；分析區在 Pick 格下面，Pick 格自己不再重複小列
   await pick(E, 'blue', 'pick', 0, 'Darius');
-  await waitFive('blue', 0);
-  let darius = await rowInfo('blue', 0);
-  assert.deepEqual(darius.map(x => x.id), DARIUS_TABLE);
-  assert.ok(darius.every(x => x.source === 'table' && !x.blocked), JSON.stringify(darius));
-  assert.equal(darius[0].title, '賈克斯｜上路劣勢對位表：克制 達瑞斯');
+  await waitPanel('blue', 'Darius');
+  let darius = await panel('blue');
+  assert.deepEqual(darius.list.map(x => x.id).sort(), [...DARIUS_TABLE].sort());
+  assert.ok(darius.list.every(x => x.source === 'table' && !x.blocked && x.play > 0), JSON.stringify(darius.list));
+  assertSorted(darius.list);
+  assert.match(darius.text, /剋 達瑞斯/);
+  assert.match(darius.text, /前 5 大剋星（克制程度 高→低）/);
+  assert.ok(['金牌', '翡翠', '鑽石'].every(t => darius.text.includes(t)));
+  await assertMatchesWorker('Darius', 'top', darius);
+  assert.notDeepEqual(darius.tiers.gold.map(x => x.id), darius.tiers.diamond.map(x => x.id), '金牌和鑽石應該不一樣');
+  assert.equal(await E.locator('#bluePickSlots .counter-row').count(), 0);
+  console.log(`       達瑞斯：${darius.list.map(x => `${x.id} ${(x.wr * 100).toFixed(1)}%`).join('、')}`);
+  console.log(`       分段：${Object.entries(darius.tiers).map(([t, l]) => `${t} ${l.map(x => x.id).join('/')}`).join('；')}`);
 
-  // 漢默丁格：表上只有伊澤瑞爾 → 第 1 隻是他，後 4 隻用 OP.GG 上路補，不重複、不含自己
+  // 漢默丁格：表上只有伊澤瑞爾 → 其他 4 隻用 OP.GG 上路補，不重複、不含自己
   await pick(E, 'red', 'pick', 0, 'Heimerdinger');
-  await waitFive('red', 0);
-  const heimer = await rowInfo('red', 0);
-  assert.deepEqual([heimer[0].id, heimer[0].source], ['Ezreal', 'table']);
-  heimer.slice(1).forEach(x => assert.match(x.title, /｜OP\.GG 上路：對 漢默丁格 勝率 [\d.]+%（\d+ 場）$/));
-  assert.ok(heimer.slice(1).every(x => x.source === 'opgg'));
-  assert.equal(new Set(heimer.map(x => x.id)).size, 5);
-  assert.ok(!heimer.some(x => x.id === 'Heimerdinger'));
+  await waitPanel('red', 'Heimerdinger');
+  const heimer = await panel('red');
+  assert.deepEqual(heimer.list.filter(x => x.source === 'table').map(x => x.id), ['Ezreal']);
+  assert.equal(heimer.list.filter(x => x.source === 'opgg').length, 4);
+  assert.equal(new Set(heimer.list.map(x => x.id)).size, 5);
+  assert.ok(!heimer.list.some(x => x.id === 'Heimerdinger'));
+  assertSorted(heimer.list);
+  assert.match(heimer.text, /紅方 Pick 1・上路/);
+  await assertMatchesWorker('Heimerdinger', 'top', heimer);
 
-  // 阿璃：表上沒有 → 5 隻都是 OP.GG 中路
+  // 阿璃：表上沒有 → 5 隻都是 OP.GG 中路；分析區換成阿璃，達瑞斯那格改成小列（順序跟分析區一樣）
   await pick(E, 'blue', 'pick', 1, 'Ahri');
-  await waitFive('blue', 1);
-  const ahri = await rowInfo('blue', 1);
-  assert.ok(ahri.every(x => x.source === 'opgg' && x.title.includes('OP.GG 中路：對 阿璃')), JSON.stringify(ahri));
-  console.log(`       阿璃剋星：${ahri.map(x => x.title.replace(/｜OP\.GG 中路：對 阿璃 /, ' ')).join('、')}`);
+  await waitPanel('blue', 'Ahri');
+  const ahri = await panel('blue');
+  assert.ok(ahri.list.every(x => x.source === 'opgg'), JSON.stringify(ahri.list));
+  assertSorted(ahri.list);
+  assert.match(ahri.text, /藍方 Pick 2・中路/);
+  await assertMatchesWorker('Ahri', 'mid', ahri);
+  await waitRow('blue', 0);
+  assert.deepEqual(await rowIds('blue', 0), darius.list.map(x => x.id));
+  assert.equal(await E.locator('#bluePickSlots > div:nth-child(2) .counter-row').count(), 0);
+  console.log(`       阿璃：${ahri.list.map(x => `${x.id} ${(x.wr * 100).toFixed(1)}%`).join('、')}`);
 
-  // 本局 Ban 掉賈克斯、紅方選走凱能、手動禁用杰西 → 達瑞斯那列三隻變灰，順序不變
+  // 點達瑞斯那格 → 分析區切回達瑞斯
+  await E.click('#bluePickSlots > div:nth-child(1)');
+  await waitPanel('blue', 'Darius');
+  await waitRow('blue', 1);
+
+  // 本局 Ban 掉賈克斯、紅方選走凱能、手動禁用杰西 → 這三隻變灰，順序不變；分段裡出現的也一樣變灰
   await pick(E, 'blue', 'ban', 0, 'Jax');
   await pick(E, 'red', 'pick', 1, 'Kennen');
   await E.fill('#searchInput', '杰西');
   await E.click('#btnBanAll');
   await E.fill('#searchInput', '');
   await E.dispatchEvent('#searchInput', 'input');
-  await E.waitForFunction(() => document.querySelectorAll('#bluePickSlots > div:nth-child(1) [data-blocked]').length === 3, null, { timeout: 5000 });
-  darius = await rowInfo('blue', 0);
-  assert.deepEqual(darius.map(x => x.id), DARIUS_TABLE);
-  assert.deepEqual(darius.map(x => x.blocked), [true, true, true, false, false]);
-  assert.match(darius[0].title, /｜不能選：本局已選或已 Ban$/);
-  assert.match(darius[1].title, /｜不能選：已手動禁用$/);
+  await E.click('#bluePickSlots > div:nth-child(1)');
+  await waitPanel('blue', 'Darius');
+  const blockedNow = new Set(['Darius', 'Heimerdinger', 'Ahri', 'Kennen', 'Jax', 'Jayce']);
+  darius = await panel('blue');
+  assert.deepEqual(darius.list.map(x => x.id).sort(), [...DARIUS_TABLE].sort());
+  assertSorted(darius.list);
+  darius.list.forEach(x => assert.equal(x.blocked, blockedNow.has(x.id), x.id));
+  assert.match(darius.list.find(x => x.id === 'Jax').text, /不能選：本局已選或已 Ban/);
+  assert.match(darius.list.find(x => x.id === 'Jayce').text, /不能選：已手動禁用/);
+  Object.values(darius.tiers).flat().forEach(x => assert.equal(x.blocked, blockedNow.has(x.id), x.id));
 
-  // Game 2（硬全局）：蓋倫的剋星凱能在 Game 1 用過 → 灰掉
+  // Game 2（硬全局）：蓋倫的剋星凱能在 Game 1 用過、杰西手動禁用 → 灰掉
   await E.click('#gameTabs button:has-text("Game 2")');
   await pick(E, 'blue', 'pick', 0, 'Garen');
-  await waitFive('blue', 0);
-  const garen = await rowInfo('blue', 0);
-  assert.deepEqual(garen.map(x => x.id), ['Mordekaiser', 'Kennen', 'Jayce', 'Kayle', 'Camille']);
-  assert.deepEqual(garen.map(x => x.blocked), [false, true, true, false, false]);
-  assert.match(garen[1].title, /｜不能選：前幾局用過或 Ban 過$/);
+  await waitPanel('blue', 'Garen');
+  const garen = await panel('blue');
+  assert.deepEqual(garen.list.map(x => x.id).sort(), ['Camille', 'Jayce', 'Kayle', 'Kennen', 'Mordekaiser']);
+  assertSorted(garen.list);
+  garen.list.forEach(x => assert.equal(x.blocked, ['Kennen', 'Jayce'].includes(x.id), x.id));
+  assert.match(garen.list.find(x => x.id === 'Kennen').text, /不能選：前幾局用過或 Ban 過/);
 
-  // 點剋星頭像不會選角
+  // 點剋星（分析區、分段、小列）都不會選角
   const before = await E.evaluate(() => JSON.stringify(window.roomState.games));
-  await E.locator('#bluePickSlots > div:nth-child(1) [data-counter]').first().click();
+  await E.locator('#blueCounterPanel li[data-counter]').first().click();
+  await E.locator('#blueCounterPanel [data-tier-counter]').first().click();
+  await E.click('#gameTabs button:has-text("Game 1")');
+  await E.locator('#bluePickSlots [data-counter]').first().click();
   await E.waitForTimeout(500);
   assert.equal(await E.evaluate(() => JSON.stringify(window.roomState.games)), before);
 
-  // 同一隻英雄只跟 OP.GG 要一次名單（漢默丁格、凱能看上路，阿璃看中路；表上夠 5 隻的達瑞斯、蓋倫不用要）
-  assert.deepEqual(counterUrls.map(u => new URL(u).search).sort(),
-    ['?champ=103&pos=mid', '?champ=74&pos=top', '?champ=85&pos=top'], counterUrls.join(' '));
+  // 同一隻英雄只跟 OP.GG 要一次；分段只抓分析區看過的那幾隻
+  const uniq = (l) => [...new Set(l)].sort();
+  const seen = ['?champ=103&pos=mid', '?champ=122&pos=top', '?champ=74&pos=top', '?champ=85&pos=top', '?champ=86&pos=top'];
+  assert.deepEqual(uniq(urls.counters), seen);
+  assert.equal(urls.counters.length, 5, urls.counters.join(' '));
+  assert.deepEqual(uniq(urls.tiers), seen);
+  assert.equal(urls.tiers.length, 5, urls.tiers.join(' '));
 
   await E.click('#btnUnbanAll'); // 清掉手動禁用（不影響別的房間，保險起見）
+  await E.click('#bluePickSlots > div:nth-child(1)');
+  await waitPanel('blue', 'Darius');
   await E.setViewportSize({ width: 390, height: 844 });
   const overflow = await E.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   assert.ok(overflow <= 0, `手機寬度超出 ${overflow}px`);
-  await E.click('#gameTabs button:has-text("Game 1")');
-  await E.locator('#bluePickSlots').screenshot({ path: path.join(ROOT, 'test-results', 'counters-mobile.png') });
+  await E.locator('#blueCounterPanel').screenshot({ path: path.join(ROOT, 'test-results', 'counters-mobile.png') });
   await E.setViewportSize({ width: 1500, height: 1000 });
-  await E.locator('#bluePickSlots').screenshot({ path: path.join(ROOT, 'test-results', 'counters.png') });
+  await E.waitForTimeout(300);
+  await E.screenshot({ path: path.join(ROOT, 'test-results', 'counters.png') });
   await E.context().close();
 });
 
-await test('剋星只有創造者看得到：朋友畫面沒有剋星列，整個過程也沒發過 OP.GG 請求', async () => {
+await test('剋星只有創造者看得到：朋友畫面沒有剋星列和分析區，整個過程也沒發過 OP.GG 請求', async () => {
   assert.ok(await A.locator('.counter-row').count() > 0, '創造者應該有剋星列');
+  assert.ok(await A.locator('.counter-panel').count() > 0, '創造者應該有剋星分析');
   assert.equal(await B.locator('.counter-row').count(), 0);
-  assert.equal(await B.locator('[data-counter]').count(), 0);
+  assert.equal(await B.locator('.counter-panel').count(), 0);
+  assert.equal(await B.locator('[data-counter], [data-tier-counter]').count(), 0);
   assert.equal(B.opggRequests, 0);
 });
 

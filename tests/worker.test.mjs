@@ -2,7 +2,7 @@
 // 用法：node tests/worker.test.mjs [--live]
 import assert from 'node:assert/strict';
 import { parseOpggText } from '../worker/src/opgg-format.js';
-import worker, { getMeta, getMatchup, getCounters, toOpggName } from '../worker/src/index.js';
+import worker, { getMeta, getMatchup, getCounters, getTierCounters, toOpggName } from '../worker/src/index.js';
 
 let passed = 0;
 const test = async (name, fn) => {
@@ -66,6 +66,10 @@ await test('counters 參數不合法 → 400', async () => {
   assert.equal((await call('/counters?champ=Darius&pos=top')).status, 400);
   assert.equal((await call('/counters?pos=top')).status, 400);
 });
+await test('tiers 參數不合法 → 400', async () => {
+  assert.equal((await call('/tiers?champ=122&pos=xx')).status, 400);
+  assert.equal((await call('/tiers?champ=Darius&pos=top')).status, 400);
+});
 await test('未知路徑 → 404', async () => {
   assert.equal((await call('/nope')).status, 404);
 });
@@ -120,6 +124,32 @@ if (process.argv.includes('--live')) {
     const j = await r.json();
     assert.equal(j.pos, 'mid');
     assert.ok(j.counters.length >= 20);
+  });
+  await test('tiers：達瑞斯上路 金牌／翡翠／鑽石 各有剋星', async () => {
+    const r = await getTierCounters(122, 'top');
+    assert.deepEqual(Object.keys(r.tiers), ['gold', 'emerald', 'diamond']);
+    for (const [tier, t] of Object.entries(r.tiers)) {
+      assert.ok(t.counters.length >= 1 && t.counters.length <= 5, `${tier} ${t.counters.length}`);
+      assert.ok(t.counters.every(c => Number.isInteger(c.id) && c.id !== 122 && c.play >= c.win && c.play > 0), JSON.stringify(t.counters));
+      assert.ok(t.play > 1000, `${tier} 場數 ${t.play}`);
+      console.log(`       ${tier}${t.small ? '（樣本少）' : ''}：${t.counters.map(c => `${c.id} ${((1 - c.win / c.play) * 100).toFixed(1)}%`).join('、')}`);
+    }
+    // 三個分段的數據真的不一樣（OP.GG 有照分段篩）
+    const sig = Object.values(r.tiers).map(t => JSON.stringify(t.counters));
+    assert.equal(new Set(sig).size, 3);
+  });
+  await test('tiers：樣本少的英雄改用原始對位（黑默丁格鑽石上路）', async () => {
+    const r = await getTierCounters(74, 'top');
+    assert.ok(Object.values(r.tiers).every(t => t.counters.length > 0), JSON.stringify(r.tiers));
+  });
+  await test('Worker 完整走一次 /tiers（下路、輔助）', async () => {
+    for (const [champ, pos] of [[236, 'adc'], [412, 'support']]) {
+      const r = await call(`/tiers?champ=${champ}&pos=${pos}`);
+      assert.equal(r.status, 200);
+      const j = await r.json();
+      assert.equal(j.pos, pos);
+      assert.ok(Object.values(j.tiers).every(t => t.counters.length > 0));
+    }
   });
   await test('Worker 完整走一次 /meta（含 CORS）', async () => {
     const r = await call('/meta');

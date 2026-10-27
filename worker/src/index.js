@@ -7,11 +7,13 @@
 //   GET /meta                                 各路英雄勝率／登場率／禁用率
 //   GET /matchup?champ=103&pos=mid&vs=134     該英雄在該路對上各英雄的戰績（用英雄數字 id）
 //   GET /counters?champ=122&pos=top           同上但不指定對手（創造者畫面的「剋星」用）
+//   GET /tiers?champ=122&pos=top              金牌／翡翠／鑽石各分段最剋他的英雄（OP.GG 每個分段只給前 3）
 
 import { parseOpggText } from './opgg-format.js';
 
 const MCP_URL = 'https://mcp-api.op.gg/mcp';
 const POSITIONS = ['top', 'jungle', 'mid', 'adc', 'support'];
+const TIERS = ['gold', 'emerald', 'diamond'];
 const META_TTL = 30 * 60;        // 秒
 const MATCHUP_TTL = 3 * 60 * 60; // 秒
 
@@ -115,6 +117,34 @@ export async function getCounters(champ, pos, champList) {
   return { source: r.source, fetchedAt: r.fetchedAt, champ, pos, counters: r.counters };
 }
 
+// 各分段最剋某英雄的前幾名（OP.GG 只給 3 隻）。上面兩支沒有分段（固定是翡翠以上），分段數據只有英雄分析工具有
+// 樣本不夠時 OP.GG 不給 weak_counters，改用該路的原始對位（樣本較少，標 small）
+export async function getTierCounters(champ, pos, champList) {
+  const list = champList || await getChampionList();
+  const me = list.find(c => c.champion_id === champ);
+  if (!me) throw new Error('找不到英雄');
+  const rows = await Promise.all(TIERS.map(async (tier) => {
+    const text = await callOpgg('lol_get_champion_analysis', {
+      game_mode: 'ranked', champion: toOpggName(me.name), position: pos, tier, lang: 'en_US',
+      desired_output_fields: [
+        'data.weak_counters[].{champion_id,play,win}',
+        'data.summary.positions[].name',
+        'data.summary.positions[].counters[].{champion_id,play,win}',
+        'data.summary.average_stats.play',
+      ],
+    });
+    const d = parseOpggText(text)?.data || {};
+    const weak = d.weak_counters || [];
+    const raw = (d.summary?.positions || []).find(p => String(p.name).toLowerCase() === pos)?.counters || [];
+    return [tier, {
+      play: d.summary?.average_stats?.play ?? null,
+      small: !weak.length,
+      counters: (weak.length ? weak : raw).map(c => ({ id: c.champion_id, play: c.play, win: c.win })),
+    }];
+  }));
+  return { source: 'OP.GG', fetchedAt: new Date().toISOString(), champ, pos, tiers: Object.fromEntries(rows) };
+}
+
 function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': origin,
@@ -172,19 +202,21 @@ export default {
         const body = await cached('meta', META_TTL, getMeta, ctx);
         return new Response(body, { headers: { 'Content-Type': 'application/json; charset=utf-8', ...cors } });
       }
-      if (url.pathname === '/matchup' || url.pathname === '/counters') {
+      if (url.pathname === '/matchup' || url.pathname === '/counters' || url.pathname === '/tiers') {
         const idOf = (s) => (/^\d{1,5}$/.test(s || '') ? Number(s) : null);
-        const isCounters = url.pathname === '/counters';
+        const isMatchup = url.pathname === '/matchup';
         const champ = idOf(url.searchParams.get('champ'));
-        const vs = isCounters ? champ : idOf(url.searchParams.get('vs'));
+        const vs = isMatchup ? idOf(url.searchParams.get('vs')) : champ;
         const pos = (url.searchParams.get('pos') || '').toLowerCase();
         if (champ === null || vs === null || !POSITIONS.includes(pos)) {
           return jsonResponse({ error: 'bad params' }, 400, cors);
         }
         const champList = JSON.parse(await cached('champions', META_TTL, getChampionList, ctx));
-        const body = isCounters
-          ? await cached(`counters:${champ}:${pos}`, MATCHUP_TTL, () => getCounters(champ, pos, champList), ctx)
-          : await cached(`matchup:${champ}:${pos}:${vs}`, MATCHUP_TTL, () => getMatchup(champ, pos, vs, champList), ctx);
+        const body = isMatchup
+          ? await cached(`matchup:${champ}:${pos}:${vs}`, MATCHUP_TTL, () => getMatchup(champ, pos, vs, champList), ctx)
+          : url.pathname === '/counters'
+            ? await cached(`counters:${champ}:${pos}`, MATCHUP_TTL, () => getCounters(champ, pos, champList), ctx)
+            : await cached(`tiers:${champ}:${pos}`, MATCHUP_TTL, () => getTierCounters(champ, pos, champList), ctx);
         return new Response(body, { headers: { 'Content-Type': 'application/json; charset=utf-8', ...cors } });
       }
       return jsonResponse({ error: 'not found' }, 404, cors);

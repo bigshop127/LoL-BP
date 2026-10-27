@@ -140,7 +140,7 @@
                 <i class="fa-solid fa-chart-line text-purple-400 text-sm"></i>
                 <span class="font-bold text-amber-300" id="opggStatusText">OP.GG 勝率數據分析連線中：</span>
                 <span id="creatorMatchupSummary">點選對決英雄，即可即時預覽對位與勝率分析數據。</span>
-                <span class="text-purple-300/80">｜剋星：<span class="text-amber-300">黃框＝上路劣勢對位表</span>、<span class="text-purple-300">紫框＝OP.GG</span>、灰色＝對面已經不能選</span>
+                <span class="text-purple-300/80">｜剋星：依克制程度排（OP.GG 翡翠以上對他的勝率）、<span class="text-amber-300">黃框＝上路劣勢對位表</span>、<span class="text-purple-300">紫框＝OP.GG</span>、灰色＝對面已經不能選；點 Pick 格切換下方分析的英雄</span>
             </div>
             <div class="flex items-center gap-2 shrink-0">
                 <button id="opggRetryBtn" onclick="loadOpggMeta(true)" class="hidden bg-purple-800/70 hover:bg-purple-700 text-purple-100 border border-purple-400/40 px-2 py-0.5 rounded text-[10px] font-bold transition">
@@ -215,6 +215,9 @@
                     <div class="space-y-2.5" id="bluePickSlots">
                         <!-- Dynamic Pick slots -->
                     </div>
+
+                    <!-- 剋星分析（創造者模式） -->
+                    <div id="blueCounterPanel"></div>
                 </div>
 
                 <!-- Blue Bans -->
@@ -306,6 +309,9 @@
                     <div class="space-y-2.5" id="redPickSlots">
                         <!-- Dynamic Pick slots -->
                     </div>
+
+                    <!-- 剋星分析（創造者模式） -->
+                    <div id="redCounterPanel"></div>
                 </div>
 
                 <!-- Red Bans -->
@@ -925,7 +931,7 @@
         const OPGG_PROXY = 'https://lol-bp-opgg.bigshop127.workers.dev';
         const OPGG_POS = { TOP: 'top', JUG: 'jungle', MID: 'mid', ADC: 'adc', SUP: 'support' };
         const OPGG_POS_LABEL = { top: '上路', jungle: '打野', mid: '中路', adc: '下路', support: '輔助' };
-        window.opgg = { status: 'idle', meta: null, error: '', fetchedAt: null, matchups: {}, counters: {} };
+        window.opgg = { status: 'idle', meta: null, error: '', fetchedAt: null, matchups: {}, counters: {}, tiers: {} };
 
         function opggProxyBase() {
             // 本機測試可用 ?opgg=http://localhost:8787 指到本機的 Worker
@@ -939,7 +945,7 @@
         async function loadOpggMeta(force) {
             if (!window.isCreatorMode) return;
             if (!force && (window.opgg.status === 'loading' || window.opgg.status === 'ready')) return;
-            if (force) { window.opgg.matchups = {}; window.opgg.counters = {}; }
+            if (force) { window.opgg.matchups = {}; window.opgg.counters = {}; window.opgg.tiers = {}; }
             window.opgg.status = 'loading';
             renderCreatorUI();
             try {
@@ -1064,67 +1070,87 @@
         };
         const COUNTER_COUNT = 5;
 
-        // 克制某英雄的 5 隻：先照表上順序，不夠的用 OP.GG 同一路「對他勝率最高」的補（場數太少的排後面）
-        // 表上有的英雄用上路數據，表上沒有的用他最常走的那一路
-        function getCounterPicks(champ) {
-            const tableIds = TOP_COUNTERS[champ.id] || [];
-            const items = tableIds.slice(0, COUNTER_COUNT)
-                .map(id => ({ champ: window.championsMap[id], source: 'table' }))
-                .filter(x => x.champ);
-            const need = COUNTER_COUNT - items.length;
-            if (need <= 0) return { items, status: 'ready' };
-
-            const pos = tableIds.length ? 'top' : (getOpggStats(champ) || {}).pos;
-            if (!pos) {
-                const status = { ready: 'nodata', error: 'error' }[window.opgg.status] || 'loading';
-                return { items, status };
-            }
-            const key = `${champ.numId}:${pos}`;
-            if (!window.opgg.counters[key]) fetchOpggCounters(key, champ, pos);
-            const o = window.opgg.counters[key];
-            if (o.status !== 'ready') return { items, status: o.status, pos };
-
-            const taken = new Set([champ.id, ...items.map(x => x.champ.id)]);
-            const reliability = (play) => (play >= 50 ? 0 : play >= 20 ? 1 : 2);
-            const fill = o.list
-                .map(r => ({ champ: window.championsByNumId[r.id], play: r.play, wr: r.play > 0 ? 1 - r.win / r.play : 0 }))
-                .filter(x => x.champ && x.play > 0 && !taken.has(x.champ.id))
-                .sort((a, b) => reliability(a.play) - reliability(b.play) || b.wr - a.wr)
-                .slice(0, need)
-                .map(x => ({ ...x, source: 'opgg' }));
-            return { items: items.concat(fill), status: 'ready', pos };
+        // 剋星用哪一路的數據：表上有的英雄用上路，表上沒有的用他最常走的那一路
+        function counterPos(champ) {
+            return TOP_COUNTERS[champ.id] ? 'top' : (getOpggStats(champ) || {}).pos;
         }
 
-        async function fetchOpggCounters(key, champ, pos) {
-            window.opgg.counters[key] = { status: 'loading' };
+        // 克制程度：OP.GG（翡翠以上）他對這隻英雄的勝率，越高越前面；場數太少的排後面
+        const counterReliability = (play) => (play >= 50 ? 0 : play >= 20 ? 1 : 2);
+        const byCounterStrength = (a, b) => counterReliability(a.play) - counterReliability(b.play) || (b.wr ?? -1) - (a.wr ?? -1);
+
+        // 克制某英雄的 5 隻：先拿表上的，不夠的用 OP.GG 同一路「對他勝率最高」的補，再依克制程度由高到低排
+        function getCounterPicks(champ) {
+            const tableItems = (TOP_COUNTERS[champ.id] || []).slice(0, COUNTER_COUNT)
+                .map(id => ({ champ: window.championsMap[id], source: 'table' }))
+                .filter(x => x.champ);
+            const pos = counterPos(champ);
+            if (!pos) {
+                const status = { ready: 'nodata', error: 'error' }[window.opgg.status] || 'loading';
+                return { items: tableItems, status };
+            }
+            const o = getOpggCounterData('counters', champ, pos);
+            if (o.status !== 'ready') return { items: tableItems, status: o.status, pos };
+
+            const list = o.data.counters || [];
+            const statsOf = new Map(list.filter(r => r.play > 0).map(r => [String(r.id), { play: r.play, wr: 1 - r.win / r.play }]));
+            const withStats = (x) => ({ ...x, ...(statsOf.get(String(x.champ.numId)) || { play: 0, wr: null }) });
+            const taken = new Set([champ.id, ...tableItems.map(x => x.champ.id)]);
+            const fill = list
+                .map(r => window.championsByNumId[r.id])
+                .filter(c => c && !taken.has(c.id))
+                .map(c => withStats({ champ: c, source: 'opgg' }))
+                .filter(x => x.play > 0)
+                .sort(byCounterStrength)
+                .slice(0, COUNTER_COUNT - tableItems.length);
+            return { items: tableItems.map(withStats).concat(fill).sort(byCounterStrength), status: 'ready', pos };
+        }
+
+        // 剋星用的 OP.GG 名單：counters＝翡翠以上全部對位、tiers＝金牌／翡翠／鑽石各自最剋他的；第一次查會去抓，抓完重畫 Pick 格
+        function getOpggCounterData(kind, champ, pos) {
+            const key = `${champ.numId}:${pos}`;
+            if (!window.opgg[kind][key]) fetchOpggCounterData(kind, key, champ, pos);
+            return window.opgg[kind][key];
+        }
+
+        async function fetchOpggCounterData(kind, key, champ, pos) {
+            const store = window.opgg[kind];
+            store[key] = { status: 'loading' };
             try {
-                const res = await fetch(`${opggProxyBase()}/counters?champ=${encodeURIComponent(champ.numId)}&pos=${pos}`);
+                const res = await fetch(`${opggProxyBase()}/${kind}?champ=${encodeURIComponent(champ.numId)}&pos=${pos}`);
                 const j = await res.json().catch(() => ({}));
                 if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
-                window.opgg.counters[key] = { status: 'ready', list: j.counters || [] };
+                store[key] = { status: 'ready', data: j };
             } catch (e) {
-                console.error('OP.GG 剋星名單讀取失敗：', e);
-                window.opgg.counters[key] = { status: 'error', error: String((e && e.message) || e) };
+                console.error(`OP.GG 剋星資料（${kind}）讀取失敗：`, e);
+                store[key] = { status: 'error', error: String((e && e.message) || e) };
             }
             if (window.isCreatorMode) renderPickSlots();
         }
 
-        // Pick 格裡的剋星列；對面（要拿剋星的那一方）已經不能選的照列但變灰
-        function renderCounterRow(champ, side) {
-            const { items, status, pos } = getCounterPicks(champ);
+        // 對面（要拿剋星的那一方）還能不能選某隻英雄；不能選回傳原因
+        function counterBlocker(side) {
             const manual = new Set(window.roomState.manualDisabledChamps || []);
             const fearless = getFearlessDisabledChampsForCurrentTeam(side === 'blue' ? 'red' : 'blue', false);
             const used = getCurrentGameUsedChamps();
+            return (c) => used.has(c.id) ? '本局已選或已 Ban' : manual.has(c.id) ? '已手動禁用' : fearless.has(c.id) ? '前幾局用過或 Ban 過' : '';
+        }
 
+        const counterWrClass = (wr) => (wr == null ? 'text-slate-500' : wr >= 0.53 ? 'text-rose-300' : wr >= 0.5 ? 'text-amber-200' : 'text-slate-400');
+        const counterWrText = (x) => (x.wr == null ? '—' : `${pct(x.wr)}%`);
+        const counterBorder = (source) => (source === 'table' ? 'border-amber-400/80' : 'border-purple-400/80');
+
+        // Pick 格裡的剋星小列（只看不能點）；不能選的照列但變灰
+        function renderCounterRow(champ, side) {
+            const { items, status } = getCounterPicks(champ);
+            const blockedWhy = counterBlocker(side);
             const icons = items.map(x => {
                 const c = x.champ;
-                const why = used.has(c.id) ? '本局已選或已 Ban' : manual.has(c.id) ? '已手動禁用' : fearless.has(c.id) ? '前幾局用過或 Ban 過' : '';
-                const from = x.source === 'table'
-                    ? `上路劣勢對位表：克制 ${champ.name}`
-                    : `OP.GG ${OPGG_POS_LABEL[pos]}：對 ${champ.name} 勝率 ${pct(x.wr)}%（${x.play} 場）`;
-                const title = `${c.name}｜${from}${why ? `｜不能選：${why}` : ''}`;
-                const border = x.source === 'table' ? 'border-amber-400/80' : 'border-purple-400/80';
-                return `<img src="${c.iconUrl}" data-counter="${c.id}" data-source="${x.source}"${why ? ' data-blocked="1"' : ''} title="${escapeHtml(title)}" alt="${escapeHtml(c.name)}" class="w-6 h-6 rounded border ${border} ${why ? 'grayscale opacity-40' : ''}">`;
+                const why = blockedWhy(c);
+                const from = x.source === 'table' ? '上路劣勢對位表' : 'OP.GG 補上';
+                const stat = x.play ? `對 ${champ.name} 勝率 ${counterWrText(x)}（${x.play} 場）` : '沒有對位數據';
+                const title = `${c.name}｜${from}｜${stat}${why ? `｜不能選：${why}` : ''}`;
+                return `<img src="${c.iconUrl}" data-counter="${c.id}" data-source="${x.source}"${why ? ' data-blocked="1"' : ''} title="${escapeHtml(title)}" alt="${escapeHtml(c.name)}" class="w-6 h-6 rounded border ${counterBorder(x.source)} ${why ? 'grayscale opacity-40' : ''}">`;
             });
             const missing = COUNTER_COUNT - items.length;
             if (missing > 0 && status === 'loading') {
@@ -1133,6 +1159,109 @@
                 icons.push('<span class="text-[10px] text-rose-400" title="OP.GG 讀取失敗（可以按上方的「重新連線」再試）">OP.GG ×</span>');
             }
             return `<div class="counter-row flex items-center gap-1 mt-1.5 pl-[60px]"><span class="text-[10px] text-slate-500 mr-0.5 shrink-0">剋星</span>${icons.join('')}</div>`;
+        }
+
+        const COUNTER_TIERS = [
+            { id: 'gold', label: '金牌', cls: 'text-yellow-400' },
+            { id: 'emerald', label: '翡翠', cls: 'text-emerald-400' },
+            { id: 'diamond', label: '鑽石', cls: 'text-sky-300' },
+        ];
+
+        // Pick 格下方的剋星分析：前 5 大剋星（依克制程度）＋ OP.GG 金牌／翡翠／鑽石各自最剋他的
+        function renderCounterPanel(champ, side, index) {
+            const { items, status, pos } = getCounterPicks(champ);
+            const blockedWhy = counterBlocker(side);
+            const name = escapeHtml(champ.name);
+
+            const rows = items.map((x, i) => {
+                const c = x.champ;
+                const why = blockedWhy(c);
+                const src = x.source === 'table' ? '<span class="text-amber-300">對位表</span>' : '<span class="text-purple-300">OP.GG</span>';
+                const games = x.play ? `${x.play.toLocaleString()} 場${x.play < 50 ? '・樣本少' : ''}` : '沒有對位數據';
+                return `
+                    <li data-counter="${c.id}" data-source="${x.source}" data-wr="${x.wr ?? ''}" data-play="${x.play || 0}"${why ? ' data-blocked="1"' : ''} class="flex items-center gap-2 ${why ? 'opacity-50' : ''}">
+                        <span class="w-4 shrink-0 text-center text-xs font-black text-slate-500">${i + 1}</span>
+                        <img src="${c.iconUrl}" alt="" class="w-8 h-8 shrink-0 rounded border ${counterBorder(x.source)} ${why ? 'grayscale' : ''}">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-baseline gap-2">
+                                <span class="text-sm font-bold text-slate-100 truncate">${escapeHtml(c.name)}</span>
+                                <span class="ml-auto shrink-0 text-sm font-black ${counterWrClass(x.wr)}">${counterWrText(x)}</span>
+                            </div>
+                            <div class="flex items-center gap-1.5 text-[10px] text-slate-500 min-w-0">
+                                ${src}<span class="shrink-0">${games}</span>
+                                ${why ? `<span class="ml-auto truncate text-rose-400/90" title="${escapeHtml(why)}">不能選：${why}</span>` : ''}
+                            </div>
+                        </div>
+                    </li>`;
+            });
+            const missing = COUNTER_COUNT - items.length;
+            if (missing > 0 && status === 'loading') {
+                rows.push(...Array(missing).fill('<li class="h-8 rounded bg-slate-800/70 animate-pulse"></li>'));
+            }
+            const note = status === 'error' ? '<div class="text-[10px] text-rose-400 mt-1">OP.GG 讀取失敗，先照對位表的順序（可以按上方的「重新連線」再試）</div>'
+                : status === 'loading' ? '<div class="text-[10px] text-slate-500 mt-1">OP.GG 讀取中，排序稍後更新…</div>'
+                : status === 'nodata' ? '<div class="text-[10px] text-slate-500 mt-1">OP.GG 沒有這隻英雄的數據</div>' : '';
+
+            return `
+                <div class="counter-panel mt-3 rounded-xl border border-purple-500/30 bg-slate-950/60 p-3" data-champ="${champ.id}">
+                    <div class="flex items-baseline gap-2 mb-2">
+                        <div class="text-sm font-bold text-purple-200 truncate"><i class="fa-solid fa-crosshairs text-purple-400"></i> 剋 ${name}</div>
+                        <span class="text-[10px] text-slate-500 shrink-0">${side === 'blue' ? '藍方' : '紅方'} Pick ${index + 1}${pos ? `・${OPGG_POS_LABEL[pos]}` : ''}</span>
+                    </div>
+                    <div class="flex text-[10px] text-slate-500 mb-1">
+                        <span>前 5 大剋星（克制程度 高→低）</span><span class="ml-auto">對他勝率（翡翠以上）</span>
+                    </div>
+                    <ol class="space-y-1.5">${rows.join('')}</ol>
+                    ${note}
+                    ${pos ? renderTierCounters(champ, pos, blockedWhy) : ''}
+                </div>`;
+        }
+
+        // OP.GG 金牌／翡翠／鑽石各自最剋這隻英雄的（OP.GG 每個分段只給前 3 名）
+        function renderTierCounters(champ, pos, blockedWhy) {
+            const t = getOpggCounterData('tiers', champ, pos);
+            const cols = COUNTER_TIERS.map(({ id, label, cls }) => {
+                const d = t.status === 'ready' ? (t.data.tiers || {})[id] : null;
+                let body;
+                if (t.status === 'ready') {
+                    const list = ((d && d.counters) || [])
+                        .map(r => ({ champ: window.championsByNumId[r.id], play: r.play, wr: r.play > 0 ? 1 - r.win / r.play : null }))
+                        .filter(x => x.champ && x.play > 0)
+                        .sort((a, b) => b.wr - a.wr);
+                    body = list.length ? list.map(x => {
+                        const c = x.champ;
+                        const why = blockedWhy(c);
+                        const title = `${c.name}｜${label}：對 ${champ.name} 勝率 ${counterWrText(x)}（${x.play} 場）${why ? `｜不能選：${why}` : ''}`;
+                        return `
+                            <div data-tier-counter="${c.id}"${why ? ' data-blocked="1"' : ''} title="${escapeHtml(title)}" class="flex items-center gap-1.5 min-w-0 ${why ? 'opacity-50' : ''}">
+                                <img src="${c.iconUrl}" alt="" class="w-6 h-6 shrink-0 rounded border border-slate-600 ${why ? 'grayscale' : ''}">
+                                <div class="min-w-0 leading-tight">
+                                    <div class="text-[11px] text-slate-200 truncate">${escapeHtml(c.name)}</div>
+                                    <div class="text-[10px] font-bold ${counterWrClass(x.wr)} whitespace-nowrap">${counterWrText(x)} <span class="font-normal text-slate-500">${x.play.toLocaleString()}場</span></div>
+                                </div>
+                            </div>`;
+                    }).join('') : '<div class="text-[10px] text-slate-600">沒有數據</div>';
+                } else if (t.status === 'error') {
+                    body = '<div class="text-[10px] text-rose-400" title="可以按上方的「重新連線」再試">讀取失敗</div>';
+                } else {
+                    body = Array(3).fill('<div class="h-6 rounded bg-slate-800/70 animate-pulse"></div>').join('');
+                }
+                const small = d && d.small ? '<span class="ml-1 text-[9px] font-normal text-slate-500" title="這個分段的對位場數不夠，OP.GG 改給原始對位（樣本較少）">樣本少</span>' : '';
+                return `<div data-tier="${id}" class="min-w-0"><div class="text-[11px] font-bold ${cls} mb-1">${label}${small}</div><div class="space-y-1">${body}</div></div>`;
+            });
+            return `
+                <div class="mt-3 pt-2 border-t border-slate-800/80">
+                    <div class="text-[10px] text-slate-500 mb-1.5">OP.GG 各分段最剋 ${escapeHtml(champ.name)} 的前 3 名</div>
+                    <div class="grid grid-cols-3 gap-2">${cols.join('')}</div>
+                </div>`;
+        }
+
+        // 剋星分析看哪一隻：目前點選的 Pick 格有英雄就看那隻，否則看這一方最後選的
+        function counterFocusIndex(side, picks, pickCount) {
+            const a = window.activeSlot;
+            if (a && a.side === side && a.type === 'pick' && picks[a.index]) return a.index;
+            for (let i = pickCount - 1; i >= 0; i--) if (picks[i]) return i;
+            return -1;
         }
 
         function renderAll() {
@@ -1288,6 +1417,7 @@
             const renderSidePicks = (side, targetElId) => {
                 const picks = side === 'blue' ? gameData.bluePicks : gameData.redPicks;
                 const container = document.getElementById(targetElId);
+                const focus = window.isCreatorMode ? counterFocusIndex(side, picks, pickCount) : -1;
                 let html = '';
 
                 for (let i = 0; i < pickCount; i++) {
@@ -1328,11 +1458,13 @@
                                 ` : ''}
                             </div>
 
-                            ${window.isCreatorMode && champ ? renderCounterRow(champ, side) : ''}
+                            ${window.isCreatorMode && champ && i !== focus ? renderCounterRow(champ, side) : ''}
                         </div>
                     `;
                 }
                 container.innerHTML = html;
+                const focusChamp = focus >= 0 ? window.championsMap[picks[focus]] : null;
+                document.getElementById(`${side}CounterPanel`).innerHTML = focusChamp ? renderCounterPanel(focusChamp, side, focus) : '';
             };
 
             renderSidePicks('blue', 'bluePickSlots');
