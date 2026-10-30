@@ -96,6 +96,8 @@ await test('英雄池抽選 draft：可以建、可以逐欄更新；欄位亂�
   await assertFails(updateDoc(doc(db(), 'rooms', 'd2'), { 'draft.bluePool': Array(201).fill('x') }));
   await assertFails(updateDoc(doc(db(), 'rooms', 'd2'), { 'draft.drawCount': 'many' }));
   await assertFails(setDoc(doc(db(), 'rooms', 'd3'), room({ draft: 'oops' })));
+  await assertSucceeds(updateDoc(doc(db(), 'rooms', 'd2'), { 'draft.drawMode': 'split', 'draft.drawsBlue.1': ['Ahri'], 'draft.drawsRed.1': ['Zed'] }));
+  await assertFails(updateDoc(doc(db(), 'rooms', 'd2'), { 'draft.drawMode': 'weird' }));
 });
 
 await env.cleanup();

@@ -640,10 +640,19 @@ await test('英雄池抽選：池大小可預設可手動輸入，雙方各自�
   await card(A, 'Nasus').click(); // 再點一次移出
   assert.deepEqual((await draftOf(A)).bluePool, ['Garen', 'Renekton', 'Teemo']);
   await card(A, 'Fiora').click();
+  await B.waitForFunction(() => window.roomState.draft.bluePool.length === 4, null, { timeout: 10000 });
+  await B.click(`#draftPanel button[onclick="togglePoolEdit('red')"]`);
+  await card(B, 'Garen').click(); // 藍方池已有的，紅方不能再選
+  await waitText(B, '#toastMsg', '兩邊的池不能重複');
+  assert.ok(!(await draftOf(B)).redPool.includes('Garen'));
+  assert.ok((await card(B, 'Garen').getAttribute('class')).includes('disabled-champ'), '對面池的英雄要變灰');
+  await B.click(`#draftPanel button[onclick="togglePoolEdit('red')"]`);
   await B.click(`#draftPanel button[onclick="randomFillPool('red')"]`);
   await B.waitForFunction(() => window.roomState.draft.redPool.length === 3, null, { timeout: 10000 });
   await A.waitForFunction(() => window.roomState.draft.redPool.length === 3, null, { timeout: 10000 });
   assert.deepEqual((await draftOf(B)).bluePool, ['Garen', 'Renekton', 'Teemo', 'Fiora'], '兩邊各自選池不會互相蓋掉');
+  const dd = await draftOf(B);
+  assert.ok(!dd.redPool.some(id => dd.bluePool.includes(id)), '隨機補滿也不會抽到對面池的英雄');
 });
 
 await test('英雄池抽選：池沒選滿不能抽；抽完 Pick 只顯示候選、其他英雄不出現，朋友同步', async () => {
@@ -712,7 +721,30 @@ await test('英雄池抽選：硬全局排除前幾局用過的；改「不強�
   await A.click('#btnReleaseDraw');
   await A.waitForFunction(() => window.roomState.draft.draws[4].length === 0, null, { timeout: 10000 });
   await A.click('#bluePickSlots > div:nth-child(1)');
-  assert.ok((await gridIds(A)).length > 150, '解除後要顯示全部英雄');
+  assert.deepEqual((await gridIds(A)).sort(), ['Ahri', 'Syndra', ...free].sort(), '解除抽選後回到只顯示雙方英雄池');
+  await A.click('#btnShowAll');
+  assert.ok((await gridIds(A)).length > 150, '按「顯示全部英雄」要顯示全部');
+  await A.click('#btnShowAll');
+  // 各自分配：每方只能選自己那份
+  await A.click(`#draftPanel button[onclick="setDrawMode('split')"]`);
+  await A.click('#btnDrawCands');
+  await A.waitForFunction(() => window.roomState.draft.drawsBlue[4].length === 2 && window.roomState.draft.drawsRed[4].length === 2, null, { timeout: 10000 });
+  const sp = await draftOf(A);
+  assert.deepEqual([...sp.drawsBlue[4]].sort(), ['Ahri', free[0]].sort());
+  assert.deepEqual([...sp.drawsRed[4]].sort(), ['Syndra', free[1]].sort());
+  await B.waitForFunction(() => window.roomState.draft.drawsRed[4]?.length === 2, null, { timeout: 10000 });
+  await A.click('#bluePickSlots > div:nth-child(1)');
+  assert.deepEqual((await gridIds(A)).sort(), [...sp.drawsBlue[4]].sort(), '點藍方 Pick 位只顯示藍方那份');
+  await A.evaluate((id) => clickChampion(id), sp.drawsRed[4][0]);
+  await waitText(A, '#toastMsg', 'Pick 只能從候選英雄裡選');
+  await B.click('#redPickSlots > div:nth-child(1)');
+  assert.deepEqual((await gridIds(B)).sort(), [...sp.drawsRed[4]].sort(), '點紅方 Pick 位只顯示紅方那份');
+  await A.click('#btnReleaseDraw');
+  await A.waitForFunction(() => window.roomState.draft.drawsBlue[4].length === 0, null, { timeout: 10000 });
+  await A.click(`#draftPanel button[onclick="setDrawMode('shared')"]`);
+  // 換到沒抽選的下一局：中間只顯示雙方池裡的英雄
+  await A.click('#gameTabs button:has-text("Game 5")');
+  assert.deepEqual((await gridIds(A)).sort(), ['Ahri', 'Syndra', ...free].sort(), '沒抽選的局數只顯示池內英雄');
   await A.click(`#draftPanel button[onclick="setDraftFearless('hard')"]`);
   await A.screenshot({ path: path.join(ROOT, 'test-results', 'draft-panel.png') });
 });
