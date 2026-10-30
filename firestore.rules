@@ -7,10 +7,22 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /rooms/{roomId} {
+      // 英雄池抽選：代表名字、雙方的池、每局抽出的候選（欄位可能只有一部分，用 get 給預設值）
+      function validDraft(x) {
+        return x is map && x.size() <= 12
+          && x.get('reps', []).size() <= 8
+          && x.get('blueRep', -1) is int && x.get('redRep', -1) is int
+          && x.get('blueSize', 10) is int && x.get('blueSize', 10) >= 1 && x.get('blueSize', 10) <= 200
+          && x.get('redSize', 10) is int && x.get('redSize', 10) >= 1 && x.get('redSize', 10) <= 200
+          && x.get('drawCount', 3) is int && x.get('drawCount', 3) >= 1 && x.get('drawCount', 3) <= 200
+          && x.get('bluePool', []).size() <= 200 && x.get('redPool', []).size() <= 200
+          && x.get('draws', {}) is map && x.get('draws', {}).size() <= 99;
+      }
+
       function validRoom(d) {
         return d.keys().hasOnly(['passwordHash', 'matchMode', 'fearlessMode', 'g1BanCount', 'g2BanCount',
                                  'currentGame', 'blueTeamName', 'redTeamName', 'manualDisabledChamps',
-                                 'games', 'updatedAt'])
+                                 'games', 'draft', 'updatedAt'])
           && d.passwordHash is string && d.passwordHash.size() <= 64
           && d.matchMode in ['1v1', '2v2', '3v3', '4v4', '5v5']
           && d.fearlessMode in ['hard', 'soft', 'standard']
@@ -21,6 +33,7 @@ service cloud.firestore {
           && d.redTeamName is string && d.redTeamName.size() <= 40
           && d.manualDisabledChamps is list && d.manualDisabledChamps.size() <= 400
           && d.games is map && d.games.size() <= 99
+          && (!('draft' in d) || validDraft(d.draft))
           && (!('updatedAt' in d) || d.updatedAt is timestamp);
       }
 

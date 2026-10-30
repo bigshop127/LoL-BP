@@ -178,6 +178,9 @@
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                <button id="btnDraftPanel" onclick="toggleDraftPanel()" title="雙方選代表、選英雄池，再從池裡抽出候選英雄" class="px-3 py-1 rounded-md bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/40 font-medium text-xs transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-dice-d20"></i> 英雄池抽選
+                </button>
                 <button onclick="copyDraftSummary()" title="複製目前這一局的 BP" class="px-3 py-1 rounded-md bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-medium shadow text-xs transition flex items-center gap-1.5">
                     <i class="fa-solid fa-copy"></i> 複製 BP 戰報
                 </button>
@@ -196,6 +199,9 @@
             </div>
         </div>
 
+        <!-- 英雄池抽選面板（內容由 renderDraftPanel 畫） -->
+        <section id="draftPanel" class="hidden bg-slate-900/80 rounded-2xl p-4 border border-indigo-500/30 shadow-xl"></section>
+
         <!-- 3 Column Draft Arena -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1">
             
@@ -208,6 +214,7 @@
                     <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
                         <input id="blueTeamNameInput" type="text" maxlength="40" value="藍方隊伍" onchange="updateTeamNames()" 
                             class="bg-transparent text-lolBlue font-black text-xl w-full focus:outline-none focus:bg-slate-800/50 rounded px-1" />
+                        <span id="blueRepTag" class="hidden text-xs text-slate-200 bg-slate-800 border border-slate-700 px-2 py-0.5 rounded font-bold whitespace-nowrap mr-1"></span>
                         <span class="text-xs bg-lolBlue/20 text-lolBlue border border-lolBlue/40 px-2 py-0.5 rounded font-bold">BLUE</span>
                     </div>
 
@@ -302,6 +309,7 @@
                     <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
                         <input id="redTeamNameInput" type="text" maxlength="40" value="紅方隊伍" onchange="updateTeamNames()" 
                             class="bg-transparent text-lolRed font-black text-xl w-full focus:outline-none focus:bg-slate-800/50 rounded px-1" />
+                        <span id="redRepTag" class="hidden text-xs text-slate-200 bg-slate-800 border border-slate-700 px-2 py-0.5 rounded font-bold whitespace-nowrap mr-1"></span>
                         <span class="text-xs bg-lolRed/20 text-lolRed border border-lolRed/40 px-2 py-0.5 rounded font-bold">RED</span>
                     </div>
 
@@ -553,6 +561,15 @@
         window.isCreatorMode = false; // Local Creator Mode flag（只存在自己這台，不會同步）
         window.room = { id: '', password: '', hash: '' }; // 房號密碼只存在本機，雲端只放密碼雜湊
 
+        // 英雄池抽選：代表只是顯示用名字（用索引記，改名不影響已選的人）；池與抽出的候選都跟房間同步
+        const DRAFT_REP_DEFAULTS = ['The shy', '老蔡', '小胖', '攻訐'];
+        window.defaultDraft = () => ({
+            reps: [...DRAFT_REP_DEFAULTS], blueRep: -1, redRep: -1,
+            blueSize: 10, redSize: 10, drawCount: 3,
+            bluePool: [], redPool: [],
+            draws: {} // 局數 → 這局抽出來的候選英雄（兩邊合併），有值就限制 Pick 只能從這裡選
+        });
+
         // Synchronized Room State
         window.roomState = {
             matchMode: '5v5', // '1v1' | '2v2' | '3v3' | '4v4' | '5v5'
@@ -563,6 +580,7 @@
             blueTeamName: '藍方隊伍',
             redTeamName: '紅方隊伍',
             manualDisabledChamps: [],
+            draft: window.defaultDraft(),
             games: {
                 1: { bluePicks: Array(5).fill(null), redPicks: Array(5).fill(null), blueBans: [], redBans: [] },
                 2: { bluePicks: Array(5).fill(null), redPicks: Array(5).fill(null), blueBans: [], redBans: [] },
@@ -681,6 +699,28 @@
         // 陣列裡的空洞（例如先選 Ban 2 再選 Ban 1）一律補 null，雲端不收 undefined
         const cleanList = (arr) => Array.from(arr || [], v => (typeof v === 'string' && v ? v : null));
 
+        const cleanIds = (arr, max) => [...new Set((Array.isArray(arr) ? arr : []).filter(v => typeof v === 'string' && v))].slice(0, max);
+        function cleanDraft(x) {
+            const def = window.defaultDraft();
+            x = x && typeof x === 'object' ? x : {};
+            const reps = def.reps.map((d, i) => (typeof (x.reps || [])[i] === 'string' && x.reps[i].trim() ? x.reps[i].trim() : d).slice(0, 12));
+            const d = {
+                reps,
+                blueRep: clampInt(x.blueRep, -1, reps.length - 1, -1),
+                redRep: clampInt(x.redRep, -1, reps.length - 1, -1),
+                blueSize: clampInt(x.blueSize, 1, 200, def.blueSize),
+                redSize: clampInt(x.redSize, 1, 200, def.redSize),
+                drawCount: clampInt(x.drawCount, 1, 200, def.drawCount),
+                bluePool: cleanIds(x.bluePool, 200),
+                redPool: cleanIds(x.redPool, 200),
+                draws: {}
+            };
+            if (d.blueRep >= 0 && d.blueRep === d.redRep) d.redRep = -1; // 兩邊不能同一人
+            Object.keys(x.draws || {}).slice(0, 99).forEach(g => { d.draws[g] = cleanIds(x.draws[g], 400); });
+            return d;
+        }
+        const isDefaultDraft = (d) => JSON.stringify(cleanDraft(d)) === JSON.stringify(window.defaultDraft());
+
         function toCloudDoc(state) {
             const d = {
                 matchMode: MATCH_MODES.includes(state.matchMode) ? state.matchMode : '5v5',
@@ -691,6 +731,7 @@
                 blueTeamName: String(state.blueTeamName || '藍方隊伍').slice(0, 40),
                 redTeamName: String(state.redTeamName || '紅方隊伍').slice(0, 40),
                 manualDisabledChamps: [...new Set((state.manualDisabledChamps || []).filter(v => typeof v === 'string' && v))].slice(0, 400),
+                draft: cleanDraft(state.draft),
                 games: {}
             };
             Object.keys(state.games || {}).slice(0, 99).forEach(g => {
@@ -713,7 +754,12 @@
         // 攤平成「欄位路徑 → 內容」，只上傳有變動的欄位；兩個人同時點不同格就不會互相蓋掉
         function flattenDoc(d) {
             const out = {};
-            Object.keys(d).forEach(k => { if (k !== 'games') out[k] = JSON.stringify(d[k]); });
+            Object.keys(d).forEach(k => { if (k !== 'games' && k !== 'draft') out[k] = JSON.stringify(d[k]); });
+            // 英雄池逐欄上傳：藍紅兩邊同時各自選池才不會互相蓋掉
+            Object.keys(d.draft).forEach(k => {
+                if (k !== 'draws') out[`draft.${k}`] = JSON.stringify(d.draft[k]);
+            });
+            Object.keys(d.draft.draws).forEach(g => { out[`draft.draws.${g}`] = JSON.stringify(d.draft.draws[g]); });
             Object.keys(d.games).forEach(g => GAME_ARRAYS.forEach(a => { out[`games.${g}.${a}`] = JSON.stringify(d.games[g][a]); }));
             return out;
         }
@@ -783,7 +829,9 @@
                     } else {
                         // 新房間：用目前畫面上的設定與選角建立
                         initial = normalizeRoomState(window.roomState);
-                        await setDoc(ref, { ...toCloudDoc(initial), passwordHash: hash, updatedAt: serverTimestamp() });
+                        const newDoc = toCloudDoc(initial);
+                        if (isDefaultDraft(newDoc.draft)) delete newDoc.draft; // 沒用到英雄池就不寫，舊規則也能建房
+                        await setDoc(ref, { ...newDoc, passwordHash: hash, updatedAt: serverTimestamp() });
                     }
                     if (window.room.id !== rId) window.activeSlot = null;
                     roomRef = ref;
@@ -1271,6 +1319,7 @@
             renderPickSlots();
             renderBanSlots();
             renderChampionGrid();
+            renderDraftPanel();
             if (!document.getElementById('manualDisableModal').classList.contains('hidden')) renderManualDisableGrid();
         }
 
@@ -1538,7 +1587,10 @@
             let hiddenCount = 0;
             let html = '';
 
+            const restrict = pickRestricted();
+            const poolSide = window.poolEditSide;
             getFilteredChampions().forEach(c => {
+                if (restrict && !restrict.has(c.id)) return; // 抽選後 Pick 只能從候選選，其他英雄不顯示
                 const isFearlessBanned = fearlessDisabledSet.has(c.id);
                 const isManualDisabled = manualDisabledSet.has(c.id);
                 const isCurrentGameUsed = currentGameUsedSet.has(c.id);
@@ -1560,6 +1612,12 @@
                     disabledBadge = '<span class="absolute top-1 right-1 bg-rose-950/90 text-rose-300 text-[10px] px-1 rounded border border-rose-800/50">已禁用</span>';
                 }
 
+                if (poolSide) {
+                    const inPool = D()[poolSide + 'Pool'].includes(c.id);
+                    const color = poolSide === 'blue' ? 'cyan' : 'rose';
+                    if (inPool) disabledBadge = `<span class="absolute top-1 right-1 bg-${color}-600 text-white text-[10px] px-1 rounded font-bold">池內</span>`;
+                }
+
                 // OP.GG Win Rate Overlay (Creator Mode Only)
                 let opggBadge = '';
                 if (window.isCreatorMode) {
@@ -1576,7 +1634,7 @@
                 }
 
                 html += `
-                    <div onclick="clickChampion('${c.id}')" class="champ-card relative rounded-xl bg-slate-950 border border-slate-800/80 p-1 flex flex-col items-center cursor-pointer hover:border-amber-500/70 ${isDisabled ? 'disabled-champ' : ''}">
+                    <div onclick="clickChampion('${c.id}')" class="champ-card relative rounded-xl bg-slate-950 border border-slate-800/80 p-1 flex flex-col items-center cursor-pointer hover:border-amber-500/70 ${isDisabled && !poolSide ? 'disabled-champ' : ''}">
                         <div class="w-full aspect-square rounded-lg overflow-hidden bg-slate-900 mb-1 relative">
                             <img src="${c.iconUrl}" class="w-full h-full object-cover" loading="lazy">
                             ${disabledBadge}
@@ -1591,6 +1649,10 @@
                 html = `<div class="col-span-full text-center text-sm text-slate-500 py-10">目前篩選的 ${hiddenCount} 隻英雄都不能選了</div>`;
             }
             container.innerHTML = html;
+            if (restrict) {
+                document.getElementById('champCountText').textContent = `抽選候選 ${visibleCount} 隻（其他英雄已隱藏）`;
+                return;
+            }
             document.getElementById('champCountText').textContent = window.showAvailableOnly
                 ? `可用 ${visibleCount} 隻（藏起 ${hiddenCount} 隻）`
                 : `顯示 ${visibleCount} / ${window.allChampions.length} 隻`;
@@ -1652,11 +1714,236 @@
             showToast(`已解除 ${removed} 隻英雄的禁用（${describeCurrentFilter()}）`);
         }
 
+        // ===== 英雄池抽選：雙方選代表＋各自選池，按抽選後從兩邊的池各抽幾隻，Pick 只能從抽出來的選 =====
+        const D = () => window.roomState.draft;
+        const SIDE_LABEL = { blue: '藍方', red: '紅方' };
+        const otherSide = (side) => (side === 'blue' ? 'red' : 'blue');
+        window.poolEditSide = null; // 正在幫哪一方選池（只存在自己這台）
+        let draftPanelOpen = false;
+        let draftPanelStale = false; // 輸入中被略過的重畫，離開輸入框後補畫
+        document.getElementById('draftPanel').addEventListener('focusout', () => {
+            if (draftPanelStale) setTimeout(renderDraftPanel, 0);
+        });
+
+        // 本局抽出的候選（Set）；沒抽過或已解除回傳 null
+        function activeCands() {
+            const list = D().draws[window.roomState.currentGame];
+            return list && list.length ? new Set(list) : null;
+        }
+        // 目前畫面要不要限制只顯示候選：選池模式、或選中 Ban 位時顯示全部
+        function pickRestricted() {
+            if (window.poolEditSide) return null;
+            const cands = activeCands();
+            if (!cands) return null;
+            if (window.activeSlot && window.activeSlot.type === 'ban') return null;
+            return cands;
+        }
+        const champName = (id) => (window.championsMap[id] ? window.championsMap[id].name : id);
+
+        function toggleDraftPanel() {
+            draftPanelOpen = !draftPanelOpen;
+            if (!draftPanelOpen) window.poolEditSide = null;
+            renderAll();
+        }
+
+        function setRep(side, i) {
+            const d = D();
+            if (d[otherSide(side) + 'Rep'] === i) { showToast(`${d.reps[i]} 已經是${SIDE_LABEL[otherSide(side)]}代表了，兩邊不能同一個人`, "warning"); return; }
+            d[side + 'Rep'] = d[side + 'Rep'] === i ? -1 : i;
+            syncAndRender();
+        }
+        function renameRep(i, value) {
+            if (!window.isCreatorMode) return;
+            const name = String(value).trim().slice(0, 12);
+            if (name) D().reps[i] = name;
+            syncAndRender();
+        }
+        function setPoolSize(side, value) {
+            const n = Math.min(200, Math.floor(Number(value)) || 0);
+            if (n < 1) { renderAll(); return; }
+            const d = D();
+            d[side + 'Size'] = n;
+            if (d[side + 'Pool'].length > n) {
+                const cut = d[side + 'Pool'].length - n;
+                d[side + 'Pool'] = d[side + 'Pool'].slice(0, n);
+                showToast(`${SIDE_LABEL[side]}池縮小到 ${n} 隻，最後加入的 ${cut} 隻已移出`, "warning");
+            }
+            syncAndRender();
+        }
+        function setDrawCount(value) {
+            const n = Math.min(200, Math.floor(Number(value)) || 0);
+            if (n >= 1) D().drawCount = n;
+            syncAndRender();
+        }
+        function setDraftFearless(mode) {
+            window.roomState.fearlessMode = mode;
+            syncAndRender();
+        }
+        function togglePoolEdit(side) {
+            window.poolEditSide = window.poolEditSide === side ? null : side;
+            if (window.poolEditSide) window.activeSlot = null;
+            renderAll();
+        }
+        function togglePoolChamp(champId) {
+            const side = window.poolEditSide;
+            const d = D();
+            const pool = d[side + 'Pool'];
+            const at = pool.indexOf(champId);
+            if (at >= 0) pool.splice(at, 1);
+            else if (pool.length >= d[side + 'Size']) {
+                showToast(`${SIDE_LABEL[side]}池已滿 ${d[side + 'Size']} 隻，要多放請先調大數量，或點池裡的英雄移除`, "warning");
+                return;
+            } else pool.push(champId);
+            syncAndRender();
+        }
+        function removeFromPool(side, champId) {
+            D()[side + 'Pool'] = D()[side + 'Pool'].filter(id => id !== champId);
+            syncAndRender();
+        }
+        function clearPool(side) {
+            D()[side + 'Pool'] = [];
+            syncAndRender();
+        }
+        // 照目前篩選把池隨機補滿（不放已手動禁用、前幾局全局禁用的）
+        function randomFillPool(side) {
+            const d = D();
+            const need = d[side + 'Size'] - d[side + 'Pool'].length;
+            if (need <= 0) { showToast(`${SIDE_LABEL[side]}池已經滿了`); return; }
+            const blocked = getFearlessDisabledChampsForCurrentTeam(side);
+            const list = getFilteredChampions().filter(c => !blocked.has(c.id) && !d[side + 'Pool'].includes(c.id));
+            if (!list.length) { showToast(`目前篩選（${describeCurrentFilter()}）已經沒有能放進池的英雄了`, "warning"); return; }
+            for (let i = 0; i < need && list.length; i++) d[side + 'Pool'].push(list.splice(Math.floor(Math.random() * list.length), 1)[0].id);
+            syncAndRender();
+            showToast(`${SIDE_LABEL[side]}池已隨機補到 ${d[side + 'Pool'].length}/${d[side + 'Size']} 隻（${describeCurrentFilter()}）`);
+        }
+
+        // 抽選：兩邊各從自己的池抽 drawCount 隻（照全局模式排除、本局已用的不抽），合併成本局候選
+        function drawCandidates() {
+            const d = D();
+            if (!window.allChampions.length) { showToast("英雄資料還在載入，請稍等一下", "warning"); return; }
+            const short = ['blue', 'red'].filter(s => d[s + 'Pool'].length < d[s + 'Size']);
+            if (short.length) {
+                showToast(`${short.map(s => `${SIDE_LABEL[s]}池 ${d[s + 'Pool'].length}/${d[s + 'Size']}`).join('、')}，雙方都選滿才能抽選`, "warning");
+                return;
+            }
+            const used = getCurrentGameUsedChamps();
+            const drawn = [];
+            const lacking = [];
+            const sides = Math.random() < 0.5 ? ['blue', 'red'] : ['red', 'blue']; // 兩邊池有重疊時，誰先抽才公平
+            sides.forEach(side => {
+                const blocked = getFearlessDisabledChampsForCurrentTeam(side);
+                const eligible = d[side + 'Pool'].filter(id => window.championsMap[id] && !blocked.has(id) && !used.has(id) && !drawn.includes(id));
+                let got = 0;
+                for (; got < d.drawCount && eligible.length; got++) drawn.push(eligible.splice(Math.floor(Math.random() * eligible.length), 1)[0]);
+                if (got < d.drawCount) lacking.push(`${SIDE_LABEL[side]}只抽到 ${got} 隻`);
+            });
+            if (!drawn.length) { showToast("兩邊的池裡都沒有能抽的英雄了（被全局規則排除或本局已用）", "error"); return; }
+            d.draws[window.roomState.currentGame] = drawn;
+            window.activeSlot = null;
+            window.poolEditSide = null;
+            syncAndRender();
+            const need = getPickCount() * 2;
+            const notes = [...lacking];
+            if (drawn.length < need) notes.push(`候選共 ${drawn.length} 隻，雙方 Pick 共需 ${need} 隻，不夠選`);
+            showToast(`Game ${window.roomState.currentGame} 抽出 ${drawn.length} 隻候選：${drawn.map(champName).join('、')}` + (notes.length ? `（${notes.join('；')}）` : ''), notes.length ? "warning" : "info");
+        }
+        function releaseDraw() {
+            const g = window.roomState.currentGame;
+            if (!activeCands()) { showToast("本局沒有抽選限制"); return; }
+            D().draws[g] = [];
+            syncAndRender();
+            showToast(`已解除 Game ${g} 的候選限制，Pick 可以選全部英雄`);
+        }
+
+        function renderDraftPanel() {
+            const d = D();
+            // 面板外的小標籤：代表名字顯示在隊伍標頭（面板關著也要更新）
+            ['blue', 'red'].forEach(side => {
+                const tag = document.getElementById(side + 'RepTag');
+                const idx = d[side + 'Rep'];
+                tag.classList.toggle('hidden', idx < 0);
+                tag.textContent = idx >= 0 ? `👤 ${d.reps[idx]}` : '';
+            });
+            const btn = document.getElementById('btnDraftPanel');
+            btn.classList.toggle('ring-2', draftPanelOpen || !!activeCands());
+            btn.classList.toggle('ring-indigo-400', draftPanelOpen || !!activeCands());
+
+            const panel = document.getElementById('draftPanel');
+            panel.classList.toggle('hidden', !draftPanelOpen);
+            if (!draftPanelOpen) return;
+            // 正在輸入數字／名字時不重畫，免得朋友那邊一同步就把游標洗掉
+            if (panel.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') { draftPanelStale = true; return; }
+            draftPanelStale = false;
+
+            const esc = escapeHtml;
+            const btnCls = (on, color) => `px-2.5 py-1 rounded-lg text-xs font-bold border transition ${on ? `bg-${color}-600 text-white border-${color}-400` : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'}`;
+            const numInput = (value, handler, id) => `<input type="number" min="1" max="200" value="${value}" id="${id}" onchange="${handler}" class="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-100 text-center focus:outline-none focus:border-indigo-400">`;
+
+            const sidePanel = (side) => {
+                const color = side === 'blue' ? 'cyan' : 'rose';
+                const pool = d[side + 'Pool'];
+                const size = d[side + 'Size'];
+                const full = pool.length >= size;
+                const repBtns = d.reps.map((name, i) => {
+                    const taken = d[otherSide(side) + 'Rep'] === i;
+                    return `<button onclick="setRep('${side}', ${i})" ${taken ? 'disabled title="對面已選"' : ''} class="${btnCls(d[side + 'Rep'] === i, color)} ${taken ? 'opacity-30 cursor-not-allowed' : ''}">${esc(name)}</button>`;
+                }).join('');
+                const presets = [5, 10, 15, 20].map(n => `<button onclick="setPoolSize('${side}', ${n})" class="${btnCls(size === n, 'indigo')}">${n}</button>`).join('');
+                const chips = pool.map(id => {
+                    const c = window.championsMap[id];
+                    return `<button onclick="removeFromPool('${side}', '${id}')" title="點一下移出池子" class="flex items-center gap-1 pr-1.5 rounded-lg bg-slate-950 border border-${color}-500/40 hover:border-rose-400 text-[11px] text-slate-200">
+                        ${c ? `<img src="${c.iconUrl}" class="w-6 h-6 rounded-l-lg">` : ''}${esc(champName(id))}</button>`;
+                }).join('') || '<span class="text-xs text-slate-500">池子是空的</span>';
+                return `
+                <div class="rounded-xl border border-${color}-500/30 bg-slate-950/50 p-3 space-y-2.5">
+                    <div class="flex items-center justify-between"><span class="font-black text-${color}-400">${SIDE_LABEL[side]}</span>
+                        <span class="text-xs ${full ? 'text-emerald-400' : 'text-slate-400'} font-bold">${pool.length} / ${size} ${full ? '✓ 已選滿' : ''}</span></div>
+                    <div class="flex flex-wrap items-center gap-1.5"><span class="text-xs text-slate-400 w-12">代表</span>${repBtns}</div>
+                    <div class="flex flex-wrap items-center gap-1.5"><span class="text-xs text-slate-400 w-12">池大小</span>${presets}${numInput(size, `setPoolSize('${side}', this.value)`, side + 'SizeInput')}</div>
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <button onclick="togglePoolEdit('${side}')" class="${btnCls(window.poolEditSide === side, color)}"><i class="fa-solid fa-hand-pointer"></i> ${window.poolEditSide === side ? '選池中…（點英雄加入／移出，按此結束）' : '從英雄列表選池'}</button>
+                        <button onclick="randomFillPool('${side}')" class="${btnCls(false, color)}"><i class="fa-solid fa-shuffle"></i> 隨機補滿</button>
+                        <button onclick="clearPool('${side}')" class="${btnCls(false, color)}"><i class="fa-solid fa-trash-can"></i> 清空</button>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">${chips}</div>
+                </div>`;
+            };
+
+            const modes = [['hard', '硬全局'], ['soft', '軟全局'], ['standard', '不強制（可重複）']];
+            const cands = d.draws[window.roomState.currentGame] || [];
+            const need = getPickCount() * 2;
+            const candHtml = cands.length
+                ? `<div id="draftCands" class="flex flex-wrap items-center gap-1.5"><span class="text-xs text-amber-300 font-bold">Game ${window.roomState.currentGame} 候選 ${cands.length} 隻：</span>${cands.map(id => `<span class="px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-xs text-amber-200 font-bold">${esc(champName(id))}</span>`).join('')}${cands.length < need ? `<span class="text-xs text-rose-400">（雙方 Pick 共需 ${need} 隻，不夠選）</span>` : ''}</div>`
+                : `<span id="draftCands" class="text-xs text-slate-500">Game ${window.roomState.currentGame} 還沒抽選，Pick 可選全部英雄</span>`;
+            const nameEdit = window.isCreatorMode
+                ? `<div class="flex flex-wrap items-center gap-1.5"><span class="text-xs text-purple-300 w-24">改代表名字 👑</span>${d.reps.map((n, i) => `<input type="text" maxlength="12" value="${esc(n)}" id="repName${i}" onchange="renameRep(${i}, this.value)" class="w-24 bg-slate-950 border border-purple-500/40 rounded-lg px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-purple-300">`).join('')}</div>`
+                : '';
+
+            panel.innerHTML = `
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h3 class="font-black text-indigo-300 flex items-center gap-2"><i class="fa-solid fa-dice-d20"></i> 英雄池抽選</h3>
+                    <button onclick="toggleDraftPanel()" class="text-slate-400 hover:text-white text-xs"><i class="fa-solid fa-chevron-up"></i> 收起</button>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">${sidePanel('blue')}${sidePanel('red')}</div>
+                <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2.5">
+                    ${nameEdit}
+                    <div class="flex flex-wrap items-center gap-1.5"><span class="text-xs text-slate-400 w-24">全局規則</span>${modes.map(([v, label]) => `<button onclick="setDraftFearless('${v}')" class="${btnCls(window.roomState.fearlessMode === v, 'amber')}">${label}</button>`).join('')}
+                        <span class="text-[11px] text-slate-500">抽選時會排除被這個規則禁用的英雄</span></div>
+                    <div class="flex flex-wrap items-center gap-1.5"><span class="text-xs text-slate-400 w-24">每方抽出</span>${[2, 3].map(n => `<button onclick="setDrawCount(${n})" class="${btnCls(d.drawCount === n, 'indigo')}">${n}</button>`).join('')}${numInput(d.drawCount, 'setDrawCount(this.value)', 'drawCountInput')}<span class="text-xs text-slate-400">隻（兩邊合併成候選）</span></div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button id="btnDrawCands" onclick="drawCandidates()" class="px-4 py-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-black text-sm shadow"><i class="fa-solid fa-dice"></i> 抽選 Game ${window.roomState.currentGame}</button>
+                        <button id="btnReleaseDraw" onclick="releaseDraw()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700">解除本局限制</button>
+                        ${candHtml}
+                    </div>
+                </div>`;
+        }
+
         // ===== 隨機選英雄：照目前篩選抽，鎖住的（已禁用、全局BAN、本局已用）不會抽到 =====
         // 某一方現在還能抽的英雄；usedSet 是本局已經被 Pick / Ban 的
-        function getRandomCandidates(side, usedSet) {
+        function getRandomCandidates(side, usedSet, isPick = false) {
             const blocked = getFearlessDisabledChampsForCurrentTeam(side);
-            return getFilteredChampions().filter(c => !blocked.has(c.id) && !usedSet.has(c.id));
+            const cands = isPick ? activeCands() : null; // 抽選過的話 Pick 只從候選裡抽
+            return getFilteredChampions().filter(c => !blocked.has(c.id) && !usedSet.has(c.id) && (!cands || cands.has(c.id)));
         }
         const pickRandom = (list) => list[Math.floor(Math.random() * list.length)];
 
@@ -1686,7 +1973,7 @@
             }
             const slot = { ...window.activeSlot };
             // 這格原本就有英雄的話它也算本局已用，重抽一定會換一隻
-            const list = getRandomCandidates(slot.side, getCurrentGameUsedChamps());
+            const list = getRandomCandidates(slot.side, getCurrentGameUsedChamps(), slot.type === 'pick');
             if (!list.length) {
                 showToast(`目前篩選（${describeCurrentFilter()}）已經沒有能抽的英雄了`, "warning");
                 return;
@@ -1719,7 +2006,7 @@
                 for (let i = 0; i < pickCount; i++) {
                     if (picks[i]) continue;
                     empty++;
-                    const list = getRandomCandidates(side, usedSet); // 軟全局時兩邊能用的不一樣，每格各自算
+                    const list = getRandomCandidates(side, usedSet, true); // 軟全局時兩邊能用的不一樣，每格各自算
                     if (!list.length) continue;
                     const champ = pickRandom(list);
                     picks[i] = champ.id;
@@ -1747,6 +2034,7 @@
 
         function selectSlot(side, type, index) {
             window.activeSlot = { side, type, index };
+            if (window.poolEditSide) { window.poolEditSide = null; renderAll(); return; } // 點欄位就離開選池模式
             renderHeaderAndInfo();
             renderPickSlots();
             renderBanSlots();
@@ -1754,6 +2042,7 @@
         }
 
         function clickChampion(champId) {
+            if (window.poolEditSide) { togglePoolChamp(champId); return; }
             if (!window.activeSlot) {
                 showToast("請先點選左側或右側欄位 (Pick / Ban)，再點擊英雄！", "warning");
                 return;
@@ -1770,6 +2059,11 @@
             const fearlessSet = getFearlessDisabledChampsForCurrentTeam(side);
             const usedSet = getCurrentGameUsedChamps();
 
+            const cands = activeCands();
+            if (type === 'pick' && cands && !cands.has(champId)) {
+                showToast("本局已抽選，Pick 只能從候選英雄裡選！", "error");
+                return;
+            }
             if (fearlessSet.has(champId)) {
                 showToast("該英雄已被全局禁用或手動關閉！", "error");
                 return;
@@ -2023,6 +2317,7 @@
                 window.roomState.games[g] = { bluePicks: Array(pickCount).fill(null), redPicks: Array(pickCount).fill(null), blueBans: [], redBans: [] };
             }
             window.roomState.currentGame = 1;
+            Object.keys(D().draws).forEach(g => { D().draws[g] = []; }); // 抽出的候選一起清，池與代表保留
             window.activeSlot = null;
             syncAndRender();
             showToast("已重置所有局數對戰紀錄");

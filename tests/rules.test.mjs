@@ -84,6 +84,20 @@ await test('Ban 位 0 可以存', async () => {
   await assertSucceeds(updateDoc(doc(db(), 'rooms', 'r1'), { g1BanCount: 0, g2BanCount: 0 }));
 });
 
+await test('英雄池抽選 draft：可以建、可以逐欄更新；欄位亂寫不行', async () => {
+  const draft = { reps: ['The shy', '老蔡', '小胖', '攻訐'], blueRep: 0, redRep: 1, blueSize: 10, redSize: 10, drawCount: 3,
+    bluePool: ['Ahri'], redPool: ['Zed'], draws: { 1: ['Ahri', 'Zed'] } };
+  await assertSucceeds(setDoc(doc(db(), 'rooms', 'd1'), room({ draft })));
+  await assertSucceeds(updateDoc(doc(db(), 'rooms', 'd1'), { 'draft.bluePool': ['Ahri', 'Jinx'], 'draft.draws.2': ['Jinx'] }));
+  await seed('d2', room()); // 舊房間沒有 draft，第一次更新只帶部分欄位
+  await assertSucceeds(updateDoc(doc(db(), 'rooms', 'd2'), { 'draft.blueRep': 2 }));
+  await assertFails(updateDoc(doc(db(), 'rooms', 'd2'), { 'draft.blueSize': 0 }));
+  await assertFails(updateDoc(doc(db(), 'rooms', 'd2'), { 'draft.blueSize': 201 }));
+  await assertFails(updateDoc(doc(db(), 'rooms', 'd2'), { 'draft.bluePool': Array(201).fill('x') }));
+  await assertFails(updateDoc(doc(db(), 'rooms', 'd2'), { 'draft.drawCount': 'many' }));
+  await assertFails(setDoc(doc(db(), 'rooms', 'd3'), room({ draft: 'oops' })));
+});
+
 await env.cleanup();
 assert.ok(passed > 0);
 console.log(`\n規則測試 ${passed} 項通過${process.exitCode ? '，有失敗' : ''}`);

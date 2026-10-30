@@ -605,6 +605,127 @@ await test('剋星只有創造者看得到：朋友畫面沒有剋星列和分�
   assert.equal(B.opggRequests, 0);
 });
 
+const gridIds = (page) => page.$$eval('#championGrid > div[onclick]', els => els.map(e => e.getAttribute('onclick').match(/'(.+)'/)[1]));
+const draftOf = (page) => page.evaluate(() => JSON.parse(JSON.stringify(window.roomState.draft)));
+
+await test('英雄池抽選：兩邊代表不能同一人，名字顯示在隊伍標頭，只有創造者能改名', async () => {
+  await A.click('#btnDraftPanel');
+  await B.click('#btnDraftPanel');
+  await A.click(`#draftPanel button[onclick="setRep('blue', 0)"]`);
+  await waitText(B, '#blueRepTag', 'The shy');
+  assert.ok(await B.locator(`#draftPanel button[onclick="setRep('red', 0)"]`).isDisabled(), '對面選了的人要變灰');
+  await B.evaluate(() => setRep('red', 0)); // 硬點也不行
+  await waitText(B, '#toastMsg', '兩邊不能同一個人');
+  assert.equal((await draftOf(B)).redRep, -1);
+  await B.click(`#draftPanel button[onclick="setRep('red', 1)"]`);
+  await waitText(A, '#redRepTag', '老蔡');
+  assert.equal(await B.locator('#draftPanel input[id^="repName"]').count(), 0, '朋友不該看到改名欄');
+  await A.fill('#repName1', '阿蔡');
+  await A.press('#repName1', 'Tab');
+  await waitText(B, '#redRepTag', '阿蔡');
+  assert.equal((await draftOf(B)).reps[1], '阿蔡');
+});
+
+await test('英雄池抽選：池大小可預設可手動輸入，雙方各自從英雄列表選池、同步、滿了擋下', async () => {
+  await A.click('#gameTabs button:has-text("Game 3")');
+  await A.fill('#blueSizeInput', '4');
+  await A.press('#blueSizeInput', 'Tab');
+  await B.fill('#redSizeInput', '3');
+  await B.press('#redSizeInput', 'Tab');
+  await A.waitForFunction(() => window.roomState.draft.blueSize === 4 && window.roomState.draft.redSize === 3, null, { timeout: 10000 });
+  await A.click(`#draftPanel button[onclick="togglePoolEdit('blue')"]`);
+  for (const id of ['Garen', 'Renekton', 'Teemo', 'Nasus']) await card(A, id).click();
+  await card(A, 'Fiora').click();
+  await waitText(A, '#toastMsg', '藍方池已滿 4 隻');
+  await card(A, 'Nasus').click(); // 再點一次移出
+  assert.deepEqual((await draftOf(A)).bluePool, ['Garen', 'Renekton', 'Teemo']);
+  await card(A, 'Fiora').click();
+  await B.click(`#draftPanel button[onclick="randomFillPool('red')"]`);
+  await B.waitForFunction(() => window.roomState.draft.redPool.length === 3, null, { timeout: 10000 });
+  await A.waitForFunction(() => window.roomState.draft.redPool.length === 3, null, { timeout: 10000 });
+  assert.deepEqual((await draftOf(B)).bluePool, ['Garen', 'Renekton', 'Teemo', 'Fiora'], '兩邊各自選池不會互相蓋掉');
+});
+
+await test('英雄池抽選：池沒選滿不能抽；抽完 Pick 只顯示候選、其他英雄不出現，朋友同步', async () => {
+  await A.click(`#draftPanel button[onclick="setDraftFearless('standard')"]`); // 前面幾局是隨機補的，先用不強制讓抽出數量固定
+  await A.fill('#blueSizeInput', '5');
+  await A.press('#blueSizeInput', 'Tab');
+  await A.click('#btnDrawCands');
+  await waitText(A, '#toastMsg', '雙方都選滿才能抽選');
+  await A.fill('#blueSizeInput', '4');
+  await A.press('#blueSizeInput', 'Tab');
+  await A.fill('#drawCountInput', '2');
+  await A.press('#drawCountInput', 'Tab');
+  await A.click(`#draftPanel button[onclick="togglePoolEdit('blue')"]`); // 結束選池
+  await A.click('#btnDrawCands');
+  await A.waitForFunction(() => (window.roomState.draft.draws[3] || []).length === 4, null, { timeout: 10000 });
+  const d = await draftOf(A);
+  const cands = d.draws[3];
+  assert.ok(cands.every(id => d.bluePool.includes(id) || d.redPool.includes(id)), '候選要來自雙方的池');
+  assert.deepEqual((await gridIds(A)).sort(), [...cands].sort(), '格子只剩候選');
+  await B.waitForFunction((n) => document.querySelectorAll('#championGrid > div').length === n, 4, { timeout: 10000 });
+  assert.deepEqual((await gridIds(B)).sort(), [...cands].sort());
+  await waitText(A, '#champCountText', '抽選候選 4 隻');
+  await waitText(A, '#draftCands', '不夠選');
+});
+
+await test('英雄池抽選：Pick 只能選候選（硬點非候選被擋）；Ban 位仍可選全部英雄；隨機也只抽候選', async () => {
+  const cands = (await draftOf(A)).draws[3];
+  await A.click('#bluePickSlots > div:nth-child(1)');
+  await A.evaluate(() => clickChampion('Zed'));
+  await waitText(A, '#toastMsg', 'Pick 只能從候選英雄裡選');
+  assert.equal((await gameOf(A, 3)).bluePicks[0] || null, null);
+  await card(A, cands[0]).click();
+  assert.equal((await gameOf(A, 3)).bluePicks[0], cands[0]);
+  await A.evaluate(() => { window.roomState.g2BanCount = 1; syncAndRender(); }); // 前面測試把 Ban 位數設成 0
+  await A.click('#blueBanSlots > div:nth-child(1)');
+  assert.ok((await gridIds(A)).length > 150, '選 Ban 位時要顯示全部英雄');
+  await A.click('#bluePickSlots > div:nth-child(2)');
+  assert.equal((await gridIds(A)).length, 4);
+  await A.click('#btnRandomOne');
+  const g3 = await gameOf(A, 3);
+  assert.ok(cands.includes(g3.bluePicks[1]), `隨機抽到候選外的 ${g3.bluePicks[1]}`);
+});
+
+await test('英雄池抽選：硬全局排除前幾局用過的；改「不強制」就能抽到；解除限制恢復全部', async () => {
+  const free = await A.evaluate(() => { // 前面幾局完全沒用過、也沒被禁的英雄，抽選結果才不會被隨機補滿影響
+    const used = new Set(Object.values(window.roomState.games).flatMap(g => [...g.bluePicks, ...g.redPicks, ...g.blueBans, ...g.redBans]));
+    const manual = new Set(window.roomState.manualDisabledChamps);
+    return window.allChampions.map(c => c.id).filter(id => !used.has(id) && !manual.has(id) && !['Ahri', 'Syndra'].includes(id)).slice(-2);
+  });
+  await A.evaluate(([f1, f2]) => {
+    window.roomState.fearlessMode = 'hard';
+    window.roomState.draft.bluePool = ['Ahri', f1]; window.roomState.draft.blueSize = 2;
+    window.roomState.draft.redPool = ['Syndra', f2]; window.roomState.draft.redSize = 2;
+    window.roomState.draft.drawCount = 2; window.roomState.draft.draws[4] = [];
+    syncAndRender();
+  }, free);
+  await A.click('#gameTabs button:has-text("Game 4")');
+  await A.click('#btnDrawCands');
+  await waitText(A, '#toastMsg', '抽出 2 隻候選');
+  assert.deepEqual((await draftOf(A)).draws[4].sort(), [...free].sort(), '硬全局：Game 1 用過的阿璃、星朵拉不能抽');
+  await A.click(`#draftPanel button[onclick="setDraftFearless('standard')"]`);
+  await B.waitForFunction(() => window.roomState.fearlessMode === 'standard', null, { timeout: 10000 });
+  await A.click('#btnDrawCands');
+  await A.waitForFunction(() => window.roomState.draft.draws[4].length === 4, null, { timeout: 10000 });
+  assert.deepEqual((await draftOf(A)).draws[4].sort(), ['Ahri', 'Syndra', ...free].sort(), '不強制：全部都能抽');
+  await A.click('#btnReleaseDraw');
+  await A.waitForFunction(() => window.roomState.draft.draws[4].length === 0, null, { timeout: 10000 });
+  await A.click('#bluePickSlots > div:nth-child(1)');
+  assert.ok((await gridIds(A)).length > 150, '解除後要顯示全部英雄');
+  await A.click(`#draftPanel button[onclick="setDraftFearless('hard')"]`);
+  await A.screenshot({ path: path.join(ROOT, 'test-results', 'draft-panel.png') });
+});
+
+await test('英雄池抽選：重置所有局數清掉候選但池與代表保留', async () => {
+  await A.evaluate(() => resetEntireSeries());
+  const d = await draftOf(A);
+  assert.ok(Object.values(d.draws).every(l => l.length === 0));
+  assert.equal(d.bluePool.length, 2);
+  assert.equal(d.blueRep, 0);
+  await A.click('#btnDraftPanel'); // 收起
+});
+
 await test('單機、什麼都還沒選：匯出會提示沒有紀錄', async () => {
   const D = await openPage('單機');
   await D.click('#btnCopyAll');
