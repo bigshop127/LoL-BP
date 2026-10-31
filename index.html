@@ -1517,6 +1517,17 @@
                         </div>
                     `;
                 }
+                // 各自分配：這方抽到的候選列在 Pick 格下方，點了直接填進選中的格（沒選中就填第一個空格）
+                const own = !window.draftShowAll && D().drawMode === 'split' ? D()[side === 'blue' ? 'drawsBlue' : 'drawsRed'][currGame] : null;
+                if (own && own.length) {
+                    const used = getCurrentGameUsedChamps();
+                    const tone = side === 'blue' ? 'text-cyan-300' : 'text-rose-300';
+                    html += `<div class="pt-1"><div class="text-[11px] font-bold ${tone} mb-1.5">本局抽到的 ${own.length} 隻（點一下填入）</div><div class="grid grid-cols-3 gap-2">${own.map(id => {
+                        const c = window.championsMap[id];
+                        if (!c) return '';
+                        return `<div onclick="pickFromCand('${side}', '${id}')" class="champ-card rounded-xl bg-slate-950 border border-slate-800/80 p-1 flex flex-col items-center cursor-pointer hover:border-amber-500/70 ${used.has(id) ? 'disabled-champ' : ''}"><img src="${c.iconUrl}" class="w-full aspect-square rounded-lg object-cover mb-1"><span class="text-[11px] font-bold text-slate-300 truncate w-full text-center">${c.name}</span></div>`;
+                    }).join('')}</div></div>`;
+                }
                 container.innerHTML = html;
                 const focusChamp = focus >= 0 ? window.championsMap[picks[focus]] : null;
                 document.getElementById(`${side}CounterPanel`).innerHTML = focusChamp ? renderCounterPanel(focusChamp, side, focus) : '';
@@ -1867,9 +1878,11 @@
             const bySide = { blue: [], red: [] };
             const lacking = [];
             const sides = Math.random() < 0.5 ? ['blue', 'red'] : ['red', 'blue']; // 兩邊池有重疊時，誰先抽才公平
+            const splitMode = d.drawMode === 'split';
+            const unionPool = [...new Set([...d.bluePool, ...d.redPool])]; // 各自分配：雙方池合併成公用池，兩邊都可能抽到任何一隻
             sides.forEach(side => {
                 const blocked = getFearlessDisabledChampsForCurrentTeam(side);
-                const eligible = d[side + 'Pool'].filter(id => window.championsMap[id] && !blocked.has(id) && !used.has(id) && !drawn.includes(id));
+                const eligible = (splitMode ? unionPool : d[side + 'Pool']).filter(id => window.championsMap[id] && !blocked.has(id) && !used.has(id) && !drawn.includes(id));
                 let got = 0;
                 for (; got < d.drawCount && eligible.length; got++) {
                     const id = eligible.splice(Math.floor(Math.random() * eligible.length), 1)[0];
@@ -2100,6 +2113,20 @@
             renderPickSlots();
             renderBanSlots();
             renderChampionGrid();
+        }
+
+        // 點 Pick 格下方的候選：有選中這方的 Pick 格就填那格，否則填第一個空格
+        function pickFromCand(side, champId) {
+            const slot = window.activeSlot;
+            if (!(slot && slot.side === side && slot.type === 'pick')) {
+                const g = window.roomState.games[window.roomState.currentGame];
+                const picks = (g && (side === 'blue' ? g.bluePicks : g.redPicks)) || [];
+                let idx = -1;
+                for (let i = 0; i < getPickCount(); i++) if (!picks[i]) { idx = i; break; }
+                if (idx < 0) { showToast(`${SIDE_LABEL[side]}的 Pick 格都滿了，先清掉一格`, "warning"); return; }
+                window.activeSlot = { side, type: 'pick', index: idx };
+            }
+            clickChampion(champId);
         }
 
         function clickChampion(champId) {
