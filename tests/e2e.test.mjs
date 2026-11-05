@@ -807,6 +807,44 @@ await test('抽選權重：代表是 The shy 的那一方抽到克制對面／�
   await A.evaluate(() => { const d = window.roomState.draft; d.reps[0] = 'The shy'; d.reps[1] = '阿蔡'; d.reps[2] = '小胖'; d.blueRep = 0; d.redRep = 1; });
 });
 
+await test('抽選權重（OP.GG 底分）：對位表沒有的英雄靠 OP.GG 勝率排；沒載到資料就不影響；表上的英雄以對位表為準', async () => {
+  const r = await A.evaluate(() => {
+    const saved = window.opgg.meta;
+    try {
+      const num = (id) => window.championsMap[id].numId;
+      const champ = (id) => window.championsMap[id];
+      // 假資料：上路／中路／下路各 30 隻湊平均與標準差（勝率 49%／51% 交錯＝平均約 50%、標準差約 1.4%）；阿璃中路 56%、拉克絲中路 50%、燼下路 45%
+      const meta = {};
+      ['top', 'mid', 'adc'].forEach((pos, k) => { for (let i = 0; i < 30; i++) meta[9000 + k * 100 + i] = { positions: { [pos]: { wr: i % 2 ? 0.51 : 0.49, rr: 0.9, play: 5000 } } }; });
+      meta[num('Ahri')] = { positions: { mid: { wr: 0.56, rr: 0.95, play: 8000 } } };
+      meta[num('Lux')] = { positions: { mid: { wr: 0.50, rr: 0.9, play: 8000 } } };
+      meta[num('Jinx')] = { positions: { adc: { wr: 0.45, rr: 0.95, play: 8000 } } };
+      meta[num('Garen')] = { positions: { top: { wr: 0.56, rr: 0.9, play: 8000 } } }; // 走上路：不打折
+      window.opgg.meta = null;
+      const none = { base: opggBase(champ('Ahri')), pick: pickWithEdge(['Ahri', 'Lux'], 1, [], (id) => opggBase(champ(id))).length };
+      window.opgg.meta = meta;
+      const base = (id) => opggBase(champ(id));
+      const tally = (ids, n, opp) => { const t = {}; for (let i = 0; i < 60; i++) { const k = pickWithEdge(ids, n, opp, (id) => base(id)).join('+'); t[k] = (t[k] || 0) + 1; } return t; };
+      return {
+        none, ahri: base('Ahri'), lux: base('Lux'), jinx: base('Jinx'), garen: base('Garen'),
+        // 表外三隻：每次都該挑 OP.GG 最高的阿璃
+        outside: tally(['Lux', 'Jinx', 'Ahri'], 1, []),
+        // 表上的魔鬥凱薩（表底分 3.4）不會被表外的阿璃（OP.GG 加成 ≈1）蓋過
+        inTable: tally(['Ahri', 'Mordekaiser'], 1, []),
+        // 表上被判劣勢的賽恩（表底分 −1.6）不受 OP.GG 影響：就算給他很高勝率，也比不上沒資料的拉克絲
+        weakStays: (() => { meta[num('Sion')] = { positions: { top: { wr: 0.60, rr: 0.9, play: 8000 } } }; return tally(['Sion', 'Lux'], 1, []); })(),
+      };
+    } finally { window.opgg.meta = saved; }
+  });
+  assert.equal(r.none.base, null, '沒載到 OP.GG 時底分是 null');
+  assert.equal(r.none.pick, 1, '沒資料也要能正常抽');
+  assert.ok(r.ahri > 0 && r.jinx < 0 && Math.abs(r.lux) < 0.2, `標準分方向：阿璃 ${r.ahri}、燼 ${r.jinx}、拉克絲 ${r.lux}`);
+  assert.ok(r.garen > r.ahri * 1.5, `走上路的不打折（蓋倫 ${r.garen} 該明顯大於同勝率打對折的阿璃 ${r.ahri}）`);
+  assert.deepEqual(Object.keys(r.outside), ['Ahri'], `表外該挑阿璃：${JSON.stringify(r.outside)}`);
+  assert.deepEqual(Object.keys(r.inTable), ['Mordekaiser'], `表上英雄以對位表為準：${JSON.stringify(r.inTable)}`);
+  assert.deepEqual(Object.keys(r.weakStays), ['Lux'], `表上劣勢英雄不被 OP.GG 翻案：${JSON.stringify(r.weakStays)}`);
+});
+
 await test('單機、什麼都還沒選：匯出會提示沒有紀錄', async () => {
   const D = await openPage('單機');
   await D.click('#btnCopyAll');

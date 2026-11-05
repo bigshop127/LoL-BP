@@ -1881,6 +1881,38 @@
             });
             return power;
         })();
+        // 不在對位表上的英雄用 OP.GG 勝率當底分（只有創造者模式連得到 OP.GG；沒載到就回 null，只靠對位表）
+        // 有上路資料（走上路的比例 ≥10%）看上路勝率，沒有就看他最常走那一路、再打對折；用「該路自己的平均與標準差」換成標準分，免得下路天生勝率高占便宜
+        const OPGG_BASE_WEIGHT = 0.5, OPGG_OFFLANE_FACTOR = 0.5, OPGG_MIN_PLAY = 300;
+        let opggStatCache = null;
+        function opggPosStats(meta) {
+            if (opggStatCache && opggStatCache.meta === meta) return opggStatCache.stats;
+            const stats = {};
+            Object.values(OPGG_POS).forEach(pos => {
+                const wrs = [];
+                Object.values(meta).forEach(e => { const p = e.positions && e.positions[pos]; if (p && p.play >= OPGG_MIN_PLAY && typeof p.wr === 'number') wrs.push(p.wr); });
+                const mean = wrs.length >= 8 ? wrs.reduce((a, b) => a + b, 0) / wrs.length : 0.5;
+                const sd = wrs.length >= 8 ? Math.sqrt(wrs.reduce((a, b) => a + (b - mean) ** 2, 0) / wrs.length) : 0.016;
+                stats[pos] = { mean, sd: Math.max(sd, 0.01) };
+            });
+            opggStatCache = { meta, stats };
+            return stats;
+        }
+        function opggBase(champ) {
+            const meta = window.opgg && window.opgg.meta;
+            const entry = meta && champ && meta[champ.numId];
+            if (!entry || !entry.positions) return null;
+            const positions = entry.positions;
+            let pos = 'top', factor = 1;
+            if (!(positions.top && positions.top.rr >= 0.1)) {
+                pos = Object.keys(positions).sort((a, b) => (positions[b].play || 0) - (positions[a].play || 0))[0];
+                factor = OPGG_OFFLANE_FACTOR;
+            }
+            const p = pos && positions[pos];
+            if (!p || p.play < OPGG_MIN_PLAY || typeof p.wr !== 'number') return null;
+            const st = opggPosStats(meta)[pos];
+            return factor * (p.wr - st.mean) / st.sd;
+        }
         // cand 對上 opp：克制他 +1.5～3（表上越前面越高）、被他克制 −2、其餘 0
         function matchupEdge(cand, opp) {
             const beats = TOP_COUNTERS[opp] || [];
@@ -1889,14 +1921,16 @@
             return (TOP_COUNTERS[cand] || []).includes(opp) ? -2 : 0;
         }
         // 逐隻挑分數最高的：克制對面候選＋底分高；已經被克制住的對手之後只算 35%，讓這幾隻盡量蓋住不同對手；加一點亂數避免每次都一樣
-        function pickWithEdge(eligible, n, opponents) {
+        // baseOf（選用）：對位表上沒有的英雄用它給底分（OP.GG 標準分，null＝沒資料）；表上有的英雄一律以對位表為準
+        function pickWithEdge(eligible, n, opponents, baseOf) {
             const left = eligible.slice();
             const covered = new Set();
             const out = [];
+            const base = new Map(left.map(id => [id, LANE_POWER[id] !== undefined ? 0.4 * LANE_POWER[id] : OPGG_BASE_WEIGHT * ((baseOf && baseOf(id)) || 0)]));
             while (out.length < n && left.length) {
                 let best = 0, bestScore = -Infinity;
                 left.forEach((id, i) => {
-                    let s = 0.4 * (LANE_POWER[id] || 0) + Math.random() * 0.8;
+                    let s = base.get(id) + Math.random() * 0.8;
                     opponents.forEach(o => { s += (covered.has(o) ? 0.35 : 1) * matchupEdge(id, o); });
                     if (s > bestScore) { best = i; bestScore = s; }
                 });
@@ -1933,7 +1967,7 @@
             sides.forEach(side => {
                 const blocked = getFearlessDisabledChampsForCurrentTeam(side);
                 const eligible = (splitMode ? unionPool : d[side + 'Pool']).filter(id => window.championsMap[id] && !blocked.has(id) && !used.has(id) && !drawn.includes(id));
-                const got = side === edge ? pickWithEdge(eligible, d.drawCount, bySide[otherSide(side)]) : drawRandomN(eligible, d.drawCount);
+                const got = side === edge ? pickWithEdge(eligible, d.drawCount, bySide[otherSide(side)], (id) => opggBase(window.championsMap[id])) : drawRandomN(eligible, d.drawCount);
                 got.forEach(id => { drawn.push(id); bySide[side].push(id); });
                 if (got.length < d.drawCount) lacking.push(`${SIDE_LABEL[side]}只抽到 ${got.length} 隻`);
             });
@@ -1948,6 +1982,7 @@
             syncAndRender();
             const need = getPickCount() * 2;
             const notes = [...lacking];
+            if (edge && window.isCreatorMode && !window.opgg.meta) notes.push('OP.GG 資料還沒載入，這次只用對位表'); // 只有創造者看得到
             if (split) {
                 ['blue', 'red'].forEach(side => { if (bySide[side].length < getPickCount()) notes.push(`${SIDE_LABEL[side]}只有 ${bySide[side].length} 隻，Pick 需要 ${getPickCount()} 隻`); });
             } else if (drawn.length < need) notes.push(`候選共 ${drawn.length} 隻，雙方 Pick 共需 ${need} 隻，不夠選`);
