@@ -730,8 +730,9 @@ await test('英雄池抽選：硬全局排除前幾局用過的；改「不強�
   await A.click('#btnDrawCands');
   await A.waitForFunction(() => window.roomState.draft.drawsBlue[4].length === 2 && window.roomState.draft.drawsRed[4].length === 2, null, { timeout: 10000 });
   const sp = await draftOf(A);
-  assert.deepEqual([...sp.drawsBlue[4]].sort(), ['Ahri', free[0]].sort());
-  assert.deepEqual([...sp.drawsRed[4]].sort(), ['Syndra', free[1]].sort());
+  // 各自分配是從雙方合併的公用池抽，兩邊各 2 隻、不重複，合起來正好是池裡那 4 隻
+  assert.equal(new Set([...sp.drawsBlue[4], ...sp.drawsRed[4]]).size, 4);
+  assert.deepEqual([...sp.drawsBlue[4], ...sp.drawsRed[4]].sort(), ['Ahri', 'Syndra', ...free].sort());
   await B.waitForFunction(() => window.roomState.draft.drawsRed[4]?.length === 2, null, { timeout: 10000 });
   await A.click('#bluePickSlots > div:nth-child(1)');
   assert.deepEqual((await gridIds(A)).sort(), [...sp.drawsBlue[4]].sort(), '點藍方 Pick 位只顯示藍方那份');
@@ -756,6 +757,54 @@ await test('英雄池抽選：重置所有局數清掉候選但池與代表保�
   assert.equal(d.bluePool.length, 2);
   assert.equal(d.blueRep, 0);
   await A.click('#btnDraftPanel'); // 收起
+});
+
+await test('抽選權重：代表是 The shy 的那一方抽到克制對面／對線強勢的英雄；換別人就是純隨機；名字大小寫空白不影響', async () => {
+  // 紅方池只有蓋倫（一定抽到他），藍方池 4 隻：魔鬥凱薩是表上蓋倫的第一剋星、單挑底分也最高，其餘 3 隻都是表上的劣勢英雄
+  const run = (blueRep, blueName) => A.evaluate(([blueRep, blueName]) => {
+    const got = [];
+    for (let i = 0; i < 40; i++) {
+      const g = window.roomState.currentGame;
+      window.roomState.fearlessMode = 'standard';
+      window.roomState.manualDisabledChamps = [];
+      const d = window.roomState.draft;
+      d.reps[0] = blueName; d.reps[1] = '阿蔡'; d.reps[2] = '小胖';
+      d.blueRep = blueRep; d.redRep = 1;
+      d.drawMode = 'shared'; d.drawCount = 1;
+      d.blueSize = 4; d.bluePool = ['Mordekaiser', 'Sion', 'Shen', 'Ornn'];
+      d.redSize = 1; d.redPool = ['Garen'];
+      d.draws[g] = []; d.drawsBlue[g] = []; d.drawsRed[g] = [];
+      drawCandidates();
+      got.push(window.roomState.draft.draws[g].filter(id => id !== 'Garen')[0]);
+    }
+    return got;
+  }, [blueRep, blueName]);
+
+  const edge = await run(0, 'The shy');
+  assert.ok(edge.every(id => id === 'Mordekaiser'), `The shy 那方 40 次都該抽到魔鬥凱薩：${edge.join(',')}`);
+  const edge2 = await run(0, ' THE-SHY ');
+  assert.ok(edge2.every(id => id === 'Mordekaiser'), `名字大小寫／空白／連字號不影響：${edge2.join(',')}`);
+  const plain = await run(2, 'The shy'); // 藍方代表是小胖（reps[2]），The shy 沒人當 → 純隨機
+  assert.ok(new Set(plain).size >= 2, `代表不是 The shy 時應該是隨機：${plain.join(',')}`);
+
+  // 兩邊代表都叫 The shy（創造者改名撞名）→ 當作沒有，維持隨機
+  const both = await A.evaluate(() => {
+    const d = window.roomState.draft;
+    d.reps[0] = 'The shy'; d.reps[1] = 'the shy'; d.blueRep = 0; d.redRep = 1;
+    return edgeDrawSide();
+  });
+  assert.equal(both, null);
+
+  // 要蓋住不同對手：對面抽到蓋倫＋提莫，挑 2 隻就該是「克制蓋倫的魔鬥凱薩」＋「克制提莫的卡西奧佩婭」
+  const cover = await A.evaluate(() => {
+    const out = [];
+    for (let i = 0; i < 50; i++) out.push(pickWithEdge(['Sion', 'Shen', 'Cassiopeia', 'Ornn', 'Mordekaiser', 'Singed'], 2, ['Garen', 'Teemo']).sort().join('+'));
+    return [...new Set(out)];
+  });
+  assert.deepEqual(cover, ['Cassiopeia+Mordekaiser']);
+
+  // 恢復成原本的代表設定，後面的測試不受影響
+  await A.evaluate(() => { const d = window.roomState.draft; d.reps[0] = 'The shy'; d.reps[1] = '阿蔡'; d.reps[2] = '小胖'; d.blueRep = 0; d.redRep = 1; });
 });
 
 await test('單機、什麼都還沒選：匯出會提示沒有紀錄', async () => {

@@ -1864,6 +1864,55 @@
             showToast(`${SIDE_LABEL[side]}池已隨機補到 ${d[side + 'Pool'].length}/${d[side + 'Size']} 隻（${describeCurrentFilter()}）`);
         }
 
+        // ===== 抽選權重：依代表名字調整該方候選的挑法（只用上方 TOP_COUNTERS 對位表算，不連網；其他情況照舊純隨機）=====
+        const normRepName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9一-鿿]/g, '');
+        const EDGE_REPS = new Set(['theshy']);
+        function edgeDrawSide() {
+            const d = D();
+            const hit = ['blue', 'red'].filter(s => d[s + 'Rep'] >= 0 && EDGE_REPS.has(normRepName(d.reps[d[s + 'Rep']])));
+            return hit.length === 1 ? hit[0] : null; // 兩邊都叫這個名字就當沒有，維持公平
+        }
+        // 單挑底分：當別人剋星的次數 − 自己被列劣勢的數量×0.5（沒在表上的英雄 = 0）
+        const LANE_POWER = (() => {
+            const power = {};
+            Object.entries(TOP_COUNTERS).forEach(([weak, counters]) => {
+                power[weak] = (power[weak] || 0) - 0.5 * counters.length;
+                counters.forEach(c => { power[c] = (power[c] || 0) + 1; });
+            });
+            return power;
+        })();
+        // cand 對上 opp：克制他 +1.5～3（表上越前面越高）、被他克制 −2、其餘 0
+        function matchupEdge(cand, opp) {
+            const beats = TOP_COUNTERS[opp] || [];
+            const at = beats.indexOf(cand);
+            if (at >= 0) return 3 - 1.5 * at / beats.length;
+            return (TOP_COUNTERS[cand] || []).includes(opp) ? -2 : 0;
+        }
+        // 逐隻挑分數最高的：克制對面候選＋底分高；已經被克制住的對手之後只算 35%，讓這幾隻盡量蓋住不同對手；加一點亂數避免每次都一樣
+        function pickWithEdge(eligible, n, opponents) {
+            const left = eligible.slice();
+            const covered = new Set();
+            const out = [];
+            while (out.length < n && left.length) {
+                let best = 0, bestScore = -Infinity;
+                left.forEach((id, i) => {
+                    let s = 0.4 * (LANE_POWER[id] || 0) + Math.random() * 0.8;
+                    opponents.forEach(o => { s += (covered.has(o) ? 0.35 : 1) * matchupEdge(id, o); });
+                    if (s > bestScore) { best = i; bestScore = s; }
+                });
+                const id = left.splice(best, 1)[0];
+                out.push(id);
+                opponents.forEach(o => { if (matchupEdge(id, o) > 0) covered.add(o); });
+            }
+            return out;
+        }
+        function drawRandomN(eligible, n) {
+            const left = eligible.slice();
+            const out = [];
+            while (out.length < n && left.length) out.push(left.splice(Math.floor(Math.random() * left.length), 1)[0]);
+            return out;
+        }
+
         // 抽選：兩邊各從自己的池抽 drawCount 隻（照全局模式排除、本局已用的不抽），合併成本局候選
         function drawCandidates() {
             const d = D();
@@ -1877,19 +1926,16 @@
             const drawn = [];
             const bySide = { blue: [], red: [] };
             const lacking = [];
-            const sides = Math.random() < 0.5 ? ['blue', 'red'] : ['red', 'blue']; // 兩邊池有重疊時，誰先抽才公平
+            const edge = edgeDrawSide(); // 有權重的那一方要等對面抽完才抽（要看對面抽到什麼）；沒有就隨機決定誰先抽，兩邊池有重疊時才公平
+            const sides = edge ? [otherSide(edge), edge] : (Math.random() < 0.5 ? ['blue', 'red'] : ['red', 'blue']);
             const splitMode = d.drawMode === 'split';
             const unionPool = [...new Set([...d.bluePool, ...d.redPool])]; // 各自分配：雙方池合併成公用池，兩邊都可能抽到任何一隻
             sides.forEach(side => {
                 const blocked = getFearlessDisabledChampsForCurrentTeam(side);
                 const eligible = (splitMode ? unionPool : d[side + 'Pool']).filter(id => window.championsMap[id] && !blocked.has(id) && !used.has(id) && !drawn.includes(id));
-                let got = 0;
-                for (; got < d.drawCount && eligible.length; got++) {
-                    const id = eligible.splice(Math.floor(Math.random() * eligible.length), 1)[0];
-                    drawn.push(id);
-                    bySide[side].push(id);
-                }
-                if (got < d.drawCount) lacking.push(`${SIDE_LABEL[side]}只抽到 ${got} 隻`);
+                const got = side === edge ? pickWithEdge(eligible, d.drawCount, bySide[otherSide(side)]) : drawRandomN(eligible, d.drawCount);
+                got.forEach(id => { drawn.push(id); bySide[side].push(id); });
+                if (got.length < d.drawCount) lacking.push(`${SIDE_LABEL[side]}只抽到 ${got.length} 隻`);
             });
             if (!drawn.length) { showToast("兩邊的池裡都沒有能抽的英雄了（被全局規則排除或本局已用）", "error"); return; }
             const g = window.roomState.currentGame;
